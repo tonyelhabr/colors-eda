@@ -1,24 +1,149 @@
+---
+author: ""
+date: ""
+title: "Analysis of Sport Team Colors"
+output:
+  html_document:
+    toc: false
+---
 
+```{r setup, include = FALSE}
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+knitr::opts_chunk$set(
+  echo = TRUE,
+  # include = FALSE,
+  # cache = TRUE,
+  # results = "markdown",
+  results = "hide",
+  # fig.align = "center",
+  # fig.show = "asis",
+  fig.width = 6,
+  fig.height = 6,
+  # out.width = 6,
+  # out.height = 6,
+  warning = FALSE,
+  message = FALSE
+)
 
+```
+
+When working with the [`ggplot2`](http://ggplot2.org/) package, I often find
+myself playing around with colors for more time than I probably should be.
+I think that this is because I know that
+the right color scheme can greatly enhance the information that a plot portrays; 
+and, conversely, choosing
+an uncomplementary palette can suppress the message of an otherwise good visualization.
+
+With that said, I wanted to take a look at the presence of colors in the
+sports realm.
+I think some fun insight can be made from some relatively basic analysis of
+colors used by individual teams, among teams in a given sport, etc.
+(Some people have done some relatively technical research on this topic, such as studying
+the possible effects of color on fan (and player) perception of teams.)
+
+## Setup
 
 ```{r}
 library("dplyr")
+library("tidyr")
 library("teamcolors")
 library("ggthemes")
 library("ggplot2")
+library("UpSetR")
 ```
 
+The data that I'll use comes from the `teamcolors` R package, 
+which itself is sourced from
+[Jim Nielsen's website for `teamcolors`](http://jim-nielsen.com/teamcolors/).
+This data set provides color information from teams from 
+six professional sports leagues:
 
++ EPL (European futbol), 
++ MLB (baseball), 
++ MLS (American soccer), 
++ NBA (basketball), 
++ NFL (American football), and
++ NHL (hockey).
 
-```{r}
-colors_tms_tidy <-
+(Only the EPL is a non-American league).
+It lists up to four colors for each team.
+
+```{r teamcolors}
+teamcolors::teamcolors
+```
+
+## Exploratory Data Analysis (EDA)
+
+Here's a fairly rough visualizaton of all the colors in this data set.
+
+```{r viz_colors_all, echo = FALSE}
+colors_tidy <-
   teamcolors::teamcolors %>%
-  tidyr::gather(priority, hex, -name, -league)
+  tidyr::gather(ord, hex, -name, -league)
+
+pull_distinctly <- function(data, col) {
+  col <- rlang::enquo(col)
+  data %>%
+    distinct(!!col) %>%
+    arrange(!!col) %>%
+    pull(!!col)
+}
+
+hex_unique <-
+  colors_tidy %>% pull_distinctly(hex)
+
+convert_hex2dec <- function(hex = NULL) {
+  strtoi(stringr::str_replace(hex, "#", ""), base = 16L)
+}
+
+ord_nums <-
+  tibble::tibble(
+    ord = c("primary", "secondary", "tertiary", "quaternary"),
+    ord_num = as.integer(c(1, 2, 3, 4))
+  )
+
+tm_nums <-
+  teamcolors::teamcolors %>%
+  group_by(league) %>%
+  mutate(name_num = row_number(desc(name))) %>%
+  ungroup() %>% 
+  select(name, league, name_num)
+
+viz_colors_all <-
+  colors_tidy %>%
+  left_join(ord_nums, by = "ord") %>% 
+  left_join(tm_nums, by = c("league", "name")) %>% 
+  mutate(dec = convert_hex2dec(hex)) %>% 
+  ggplot(aes(x = name_num, y = ord_num)) +
+  geom_tile(aes(fill = hex)) +
+  scale_fill_manual(values = hex_unique) +
+  facet_wrap(~league, scales = "free", labeller = labeller(league = toupper)) +
+  teplot::theme_te() +
+  theme(
+    legend.position = "none",
+    panel.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.ticks = element_blank(),
+    axis.text.y = element_blank()
+  ) +
+  labs(
+    title = "Colors for All Teams in Professional Sports Leagues",
+    caption = paste0("Colors are stacked for each individual team.\n",
+                     "Source: {teamcolors} R package."),
+    x = NULL,
+    y = NULL
+  )
+viz_colors_all
 ```
 
+### Which leagues are the most colorful?
 
-```{r}
-colors_tms_cnts_byleague <-
+Note that there quite a few teams without a full set of four colors
+(and some without a third or even second color).
+
+```{r colors_pct_nas}
+colors_bylg_cnts <-
   teamcolors::teamcolors %>%
   group_by(league) %>%
   count(
@@ -29,32 +154,10 @@ colors_tms_cnts_byleague <-
   ) %>%
   ungroup() %>%
   arrange(league, desc(n))
-colors_tms_cnts_byleague
-```
+colors_bylg_cnts
 
-```{r include = FALSE, eval = FALSE}
-# colors_tms_cnt_nas <-
-#   colors_tms_tidy %>%
-#   mutate(
-#     na_value =
-#       case_when(
-#         priority == "primary" & is.na(value) ~ 4,
-#         priority == "secondary" & is.na(value) ~ 3,
-#         priority == "tertiary" & is.na(value)~ 2,
-#         priority == "quaternary" & is.na(value) ~ 1,
-#         TRUE ~ 0
-#       )
-#   ) %>%
-#   group_by(league) %>%
-#   summarize(sum = sum(na_value)) %>%
-#   ungroup() %>%
-#   arrange(desc(sum))
-# colors_tms_cnt_nas
-```
-
-```{r}
-colors_tms_pct_nas <-
-  colors_tms_tidy %>%
+colors_pct_nas <-
+  colors_tidy %>%
   count(league, is_na = is.na(hex), sort = TRUE) %>%
   filter(is_na) %>%
   select(-is_na) %>%
@@ -66,97 +169,153 @@ colors_tms_pct_nas <-
     by = "league"
   ) %>%
   mutate(n_pct = 100 * n / total)
-colors_tms_pct_nas
+colors_pct_nas
 ```
 
-```{r}
+Both the visualization and the above tabulation indicate that the `MLB` is missing
+the most colors (by percentage of missing color values).
+Perhaps this suggest that is the most "dull" sports league. In fact,
+the current consensus among sports fans is that the MLB has a decaying fan-base in the U.S.
+because it is failing to attract younger fans. This opinion is typically based
+on conjectures about the game's slow pace, but, who knows, maybe colors
+also has something to do with it! (I'm kidding. I pride myself in guarding against
+the correlation-equals-causation fallacy.)
 
-colors_tms_nms <-
-  colors_tms_tidy %>%
-  filter(!is.na(hex)) %>%
-  filter(priority == "primary") %>%
-  # filter(league == "nba") %>%
-  pull(hex) %>%
-  purrr::map(plotrix::color.id) %>%
-  purrr::map_chr( ~ .[1]) %>%
-  stringr::str_replace_all("[0-9]", "")
+The `NFL` is on the other end of the spectrum (pun intended), with only 1.5 %
+of missing color values. Is it a coincidence that the NFL is the most popular
+sport in the United States by a wide margin? (Again, in case you think I'm serious,
+let me be clear--yes, it is a coincidence... probably.)
 
-colors_tms_named <-
-  bind_cols(
-    colors_tms_tidy %>% filter(priority == "primary") ,
-    # tibble::tribble(~color_name, colors_tms_nms) %>% tidyr::unnest()
-    tibble::as_tibble(colors_tms_nms) %>% rename(color_name = value)
-  )
+### What are the most common colors?
 
-colors_tms_named %>%
-  count(color_name, sort = TRUE)
+Using a slightly customzied version of the `plotrix::color.id()` function,
+I can attempt to identify common colors (by name) from the hex values. [^fn_pri_only]
 
-```
+[^fn_pri_only]:
+Because not every team has secondary, tertiary, and quaternary,
+I limit this analysis to primary colors only. Also, one can make the argument
+that not much valuable insight can be attained beyond the primary color.
 
-```{r}
+```{r color_functions}
 # Reference:
 # + plotrix::color.id
-pal_spectral <- RColorBrewer::brewer.pal(n = 11, name = "Spectral")
-pal_rainbow <- c(grDevices::rainbow(10), "#ffffff", "#000000")
-color_id <- function(hex, colors_all = grDevices::colors()) {
+color_id <- function(hex, set = grDevices::colors()) {
   c2 <- grDevices::col2rgb(hex)
-  coltab <- grDevices::col2rgb(colors_all)
+  coltab <- grDevices::col2rgb(set)
   cdist <- apply(coltab, 2, function(z) sum((z - c2)^2))
-  colors_all[which(cdist == min(cdist))]
-  # colors_all[(cdist == min(cdist))]
+  set[which(cdist == min(cdist))]
 }
-color_id(colors_tms_tidy$hex[1])
 
-identify_color_name <- function(col = NULL) {
+identify_color_name <- function(col = NULL, set = grDevices::colors()) {
   col %>%
     # purrr::map(plotrix::color.id) %>% 
-    purrr::map(color_id) %>% 
+    purrr::map(~color_id(.x, set)) %>% 
     purrr::map_chr(~.[1]) %>% 
     stringr::str_replace_all("[0-9]", "")
 }
-identify_color_name(pal_spectral)
-identify_color_name(pal_rainbow)
-scales::show_col(pal_spectral)
-scales::show_col(pal_rainbow)
-scales::dichromat_pal()(10) %>% scales::show_col()
-scales::grey_pal()(10) %>% scales::show_col()
-grep("red", colors(), value = TRUE)
-scales::show_col(rgb(t(col2rgb("palevioletred")), max = 255))
 ```
 
-```{r}
-z$primary %>% unique() %>% scales::show_col()
-colors_tms_nms <-
-  colors_tms_tidy %>%
+```{r colors_rnbw_hex_add, eval = FALSE}
+# colors_rnbw_hex_add <-
+#   # paste("#", c(paste(rep(LETTERS[1:6], 6), collapse = "")))
+```
+
+I'll bin the possible colors into a predefined set. (If a binning strategy
+is not implemented, one ends up with a more sparse, less meaningful grouping of colors.)
+This set consists of "rainbow" colors, as well as black, white, and two shades of grey.
+
+```{r colors_rnbw}
+colors_rnbw_hex <- c(grDevices::rainbow(16), "#FFFFFF", "#EEEEEE", "#AAAAAA", "#000000")
+colors_rnbw <- identify_color_name(colors_rnbw_hex)
+scales::show_col(colors_rnbw)
+```
+
+```{r colors_named}
+colors_named <-
+  colors_tidy %>%
   filter(!is.na(hex)) %>%
-  mutate(color_name = identify_color_name(hex))
-colors_tms_nms %>% 
-  count(priority, color_name, sort = TRUE)
-
-priorities <- unique(colors_tms_tidy$priority)
-priorities_first2 <- priorities[1:2]
-priorities_last2 <- priorities[3:4]
-colors_tms_nms %>% 
-  filter(priority %in% priorities_first2) %>% 
-  mutate(priority = factor(priority, levels = priorities_first2)) %>% 
-  select(-hex) %>% 
-  tidyr::spread(priority, color_name) %>% 
-  count(primary, secondary, sort = TRUE) -> z
-
-
+  pull(hex) %>%
+  identify_color_name(set = colors_rnbw) %>% 
+  tibble::as_tibble() %>%
+  rename(color_nm = value) %>% 
+  bind_cols(colors_tidy %>% filter(!is.na(hex)))
 ```
 
+The following shows the most common colors overall, as well as the most common
+primary and secondary colors.
 
+```{r colors_named_show}
+colors_named %>%
+  count(color_nm, sort = TRUE)
+colors_named %>%
+  count(ord, color_nm, sort = TRUE) %>% 
+  filter(ord == "primary")
+colors_named %>%
+  count(ord, color_nm, sort = TRUE) %>% 
+  filter(ord == "secondary")
+```
 
+```{r colors_sets}
+ords <- colors_tidy %>% pull_distinctly(ord)
+color_nm_na <- "none"
+colors_named_complete <-
+  colors_named %>% 
+  mutate(ord = factor(ord, levels = ords)) %>% 
+  select(-hex, -league) %>% 
+  tidyr::complete(name, ord, fill = list(color_nm = color_nm_na)) %>%
+  tidyr::spread(ord, color_nm)
+colors_named_tidy <-
+  colors_named_complete %>%
+  tidyr::gather(ord, color_nm, -name)
+
+# + Reference:
+# https://www.cultureofinsight.com/blog/2018/01/25/2018-01-25-visualising-twitter-follower-overlap/.
+nms <- colors_named_tidy %>% pull_distinctly(name)
+colors_nms <- colors_named_tidy %>% pull_distinctly(color_nm)
+
+colors_sets <-
+  colors_nms %>%
+  purrr::map_dfc(~ ifelse(nms %in% filter(colors_named_tidy, color_nm == .x)$name,
+                          1,
+                          0) %>%
+                   as.data.frame()) %>%
+  `colnames<-`(colors_nms) %>% 
+  mutate_all(as.integer)
+colors_sets %>% tibble::as_tibble()
+```
+
+```{r viz_colors_sets, echo = FALSE}
+colors_nms_exclude <-
+  colors_named %>% 
+  count(color_nm, sort = TRUE) %>% 
+  filter(n <= 5) %>% 
+  pull(color_nm) %>% 
+  c(color_nm_na)
+colors_nms_include <-
+  setdiff(colors_nms, colors_nms_exclude)
+
+num_intersects <- 10
+viz_colors_sets <-
+  UpSetR::upset(
+    colors_sets %>% select(one_of(c(colors_nms_include))),
+    nsets = length(colors_nms_include),
+    nintersects = num_intersects,
+    main.bar.color = "red",
+    mainbar.y.label = "Color Intersections",
+    sets.x.label = "Overall Count",
+    # text.scale = c(rep(1.3, length(colors_nms_include)), 1),
+    order.by = "freq"
+  )
+```
 
 ## NBA Teams
 
-```{r}
+```{r tms_nba}
 nbastatR::assign_nba_teams()
 tms_nba <-
   teamcolors::teamcolors %>% 
   filter(league == "nba") %>% 
-  select(-league) %>% 
+  # select(-league) %>% 
   inner_join(
     df_dict_nba_teams %>%
       setNames(snakecase::to_snake_case(names(.))) %>%
@@ -164,106 +323,268 @@ tms_nba <-
       select(name = name_team, slug = slug_team),
     by = c("name")
   )
-
-colors_tms_nba_tidy <-
-  tms_nba %>%
-  tidyr::gather(priority, hex, -name, -slug) %>% 
-  filter(priority == "primary")
 ```
 
-```{r}
-colors_tms_nba_tidy %>% 
-  pull(hex) %>% 
-  scales::show_col()
+```{r tms_nfl}
+identify_tm_mascot <- function(x) {
+  stringr::str_replace_all(x, "^.*\\s", "")
+}
+
+tms_nfl <-
+  teamcolors::teamcolors %>% 
+  filter(league == "nfl") %>% 
+  # select(-league) %>% 
+  mutate(mascot = identify_tm_mascot(name)) %>% 
+  inner_join(
+    nflscrapR::nflteams %>%
+      setNames(snakecase::to_snake_case(names(.))) %>%
+      mutate_all(as.character) %>% 
+      mutate(mascot = identify_tm_mascot(team_name)) %>% 
+      select(slug = abbr, mascot),
+    by = c("mascot")
+  ) %>% 
+  select(-mascot)
 ```
 
-```{r}
-colors_tms_nba_rgb <-
-  colors_tms_nba_tidy %>%
+```{r colors_nbanfl_tidy}
+tms_nbanfl <- bind_rows(tms_nba, tms_nfl)
+colors_nbanfl_tidy <-
+  tms_nbanfl %>% 
+  tidyr::gather(ord, hex, -name, -slug, -league) %>% 
+  mutate(hex = if_else(name != "Brooklyn Nets" & ord != "secondary", hex, "#000000")) %>% 
+  filter(ord %in% c("primary", "secondary"))
+```
+
+```{r colors_nbanfl_rgb}
+colors_nbanfl_rgb <-
+  colors_nbanfl_tidy %>%
   pull(hex) %>%
   grDevices::col2rgb() %>%
   t() %>%
   tibble::as_tibble() %>%
   bind_cols(
-    tms_nba,
+    colors_nbanfl_tidy,
     .
   ) %>% 
-  select(slug, name, red, green, blue)
-colors_tms_nba_rgb
+  select(slug, name, league, ord, red, green, blue)
+colors_nbanfl_rgb
+```
+
+```{r km_clusts}
+seed <- 42
+
+data_km <-
+  colors_nbanfl_rgb %>%
+  # mutate(slug_lg_ord = paste0(slug, "_", league, "_", ord)) %>% 
+  tidyr::unite(slug_lg_ord, slug, league, ord) %>% 
+  tibble::column_to_rownames("slug_lg_ord") %>% 
+  # select(red, green)
+  select_if(is.numeric)
+data_km
 ```
 
 ```{r}
-colors_tms_nba_rgb_tidy <-
-  colors_tms_nba_rgb %>%
-  tidyr::gather(rgb, value, red, green, blue)
+# Reference(s):
+# + https://cran.r-project.org/web/packages/broom/vignettes/kmeans.html
 
-colors_tms_nba_sims <-
-  colors_tms_nba_rgb_tidy %>%
-  widyr::pairwise_similarity(slug, rgb, value) %>% 
-  rename(value = similarity)
 
-colors_tms_nba_sims %>% 
-  arrange(desc(value)) %>% 
-  group_by(item1) %>% 
-  do(head(., 2)) %>%
-  ungroup() %>%
-  arrange(item1)
 ```
 
-```{r}
-viz_colors_tms_nba_sims <-
-  colors_tms_nba_sims %>%
-  tidyr::complete(item1, item2) %>% 
-  mutate(value = if_else(is.na(value), 0, value)) %>% 
-  ggplot(aes(x = item1, y = item2)) +
-  geom_tile(aes(fill = value)) +
-  viridis::scale_fill_viridis(option = "E") +
-  theme_minimal() +
-  labs(
-    title = "Pairwise Similarity of Primary Color of NBA Teams",
-    x = NULL,
-    y = NULL
-  ) +
-  theme(legend.position = "none")
-```
 
 ```{r include = FALSE, eval = FALSE}
-# colors_tms_nba_corrs <-
-#   colors_tms_nba_rgb_tidy %>%
-#   widyr::pairwise_cor(name, rgb, value) %>% 
-#   rename(value = correlation)
-# colors_tms_nba_corrs %>% 
-#   arrange(desc(value)) %>% 
-#   group_by(item1) %>% 
-#   do(head(., 2)) %>%
-#   ungroup() %>%
-#   arrange(item1)
+# Reference(s):
+# + http://www.sthda.com/english/articles/29-cluster-validation-essentials/96-determining-the-optimal-number-of-clusters-3-must-know-methods/#fviz_nbclust-function-elbow-silhouhette-and-gap-statistic-methods.
+# + https://uc-r.github.io/kmeans_clustering
+km_wss <-
+  factoextra::fviz_nbclust(data_km, kmeans, method = "wss", k.max = 20)
+km_wss$data$y %>%  diff(differences = 2) %>% which.min() + 2
+
+km_silh <-
+  factoextra::fviz_nbclust(data_km, kmeans, method = "silhouette", k.max = 20)
+km_silh$data$y %>% which.max()
+
+set.seed(seed)
+km_gap <-
+  factoextra::fviz_nbclust(
+    data_km,
+    kmeans,
+    nstart = 10,
+    k.max = 20,
+    method = "gap_stat",
+    nboot = 50
+  )
+km_gap$data$SE.sim %>% which.max()
+nb <-
+  NbClust::NbClust(
+    data_km,
+    distance = "euclidean",
+    min.nc = 2,
+    max.nc = 10,
+    method = "kmeans"
+  )
+
+factoextra::fviz_nbclust(nb)
+
+```
+
+```{r viz_km_clust, include = FALSE, eval = FALSE}
+km_clust_4c <-
+  stats::kmeans(km_data, centers = 4)
+km_clust_4c
+autoplot(km_clust_4c, data = colors_nbanfl_rgb, label = TRUE, label.size = 3)
+```
+
+
+
+```{r colors_nbanfl_rgb_tidy}
+colors_nbanfl_rgb_tidy <-
+  colors_nbanfl_rgb %>%
+  tidyr::gather(rgb, value, red, green, blue)
 ```
 
 ```{r}
+kmeans::kmeans(colors_nbanfl_rgb, 4)
+```
 
-colors_tms_nba_rgb_ranks <-
-  colors_tms_nba_rgb_tidy %>%
-  group_by(slug) %>% 
-  mutate(rgb_rank = row_number(desc(value))) %>%
-  ungroup() %>% 
-  select(-value) %>% 
-  mutate(rgb_rank = sprintf("%02.0f", rgb_rank)) %>% 
-  tidyr::spread(rgb, rgb_rank) %>%
-  tidyr::unite(rgb_rank, red, green, blue)
-# colors_tms_nba_rgb_ranks %>% mutate(dummy = 0) %>% tidyr::spread(rgb_rank, dummy)
-# colors_tms_nba_rgb_ranks  %>% model.matrix(~rgb_rank - 1, data = .)
 
-# + Reference:
-# https://www.cultureofinsight.com/blog/2018/01/25/2018-01-25-visualising-twitter-follower-overlap/.
-library("UpSetR")
-slugs <- tms_nba$slug
-rgb_ranks <- unique(colors_tms_nba_rgb_ranks$rgb_rank)
-colors_tms_nba_rgb_sets <-
-  rgb_ranks %>%
-  purrr::map_dfc(~ifelse(slugs %in% filter(colors_tms_nba_rgb_ranks, rgb_rank == .x)$slug, 1, 0) %>%
-                   as.data.frame()) %>%
-  `colnames<-`(rgb_ranks)
-UpSetR::upset(colors_tms_nba_rgb_sets, nsets = ncol(colors_tms_nba_rgb_sets), order.by = "freq")
+```{r colors_nbanfl_dist}
+colors_nbanfl_dist <-
+  colors_nbanfl_rgb_tidy %>%
+  group_by(league, ord) %>% 
+  filter(ord == "primary") %>% 
+  widyr::pairwise_dist(name, rgb, value, upper = TRUE) %>% 
+  rename(name1 = item1, name2 = item2, value = distance) %>% 
+  arrange(value, .by_group = TRUE) %>% 
+  ungroup()
+colors_nbanfl_dist %>% count(value == 0, sort = TRUE)
+
+colors_nbanfl_dist %>% 
+  group_by(league, ord, name1) %>% 
+  do(head(., 1)) %>% 
+  ungroup()
+```
+
+```{r eval = FALSE}
+colors_nbanfl_dist_2 <-
+  colors_nbanfl_tidy %>%
+  group_by(league) %>% 
+  mutate(value = convert_hex2dec(hex)) %>% 
+  widyr::pairwise_dist(name, ord, value, upper = TRUE) %>% 
+  rename(name1 = item1, name2 = item2, value = distance) %>% 
+  arrange(value) %>% 
+  mutate(value = (value - min(value)) / (max(value) - min(value))) %>% 
+  ungroup()
+compute_dist_bylg <-
+  function(data = NULL,
+           league_filt = c("nba", "nfl"),
+           ord_filt = c("primary", "secondary")) {
+    data %>%
+      filter(league %in% league_filt) %>%
+      filter(ord %in% ord_filt) %>%
+      # group_by(league, ord) %>%
+      group_by(league) %>% 
+      mutate(value = convert_hex2dec(hex)) %>%
+      widyr::pairwise_dist(slug, ord, value, upper = TRUE) %>%
+      rename(slug1 = item1,
+             slug2 = item2,
+             value = distance) %>%
+      mutate(value = (value - min(value)) / (max(value) - min(value))) %>%
+      arrange(value) %>%
+      ungroup()
+  }
+
+z1 <-
+  colors_nbanfl_tidy %>%
+  compute_dist_bylg("nba")
+z2 <-
+  colors_nbanfl_tidy %>%
+  compute_dist_bylg("nfl")
+z3 <-
+  colors_nbanfl_tidy %>%
+  compute_dist_bylg()
+z3 %>% arrange(desc(value))
+z3 %>% 
+  filter(league == "nba") %>%
+  setdiff(z1)
+z3 %>% 
+  filter(league == "nfl") %>%
+  setdiff(z2)
+```
+
+
+
+```{r echo = FALSE, eval = FALSE}
+colors_nbanfl_dist_ranks <-
+  colors_nbanfl_dist %>%
+  group_by(league, ord, name1) %>%
+  summarize(value = sum(value, na.rm = TRUE)) %>%
+  ungroup() %>%
+  group_by(league) %>% 
+  mutate(rank = row_number(value)) %>% 
+  arrange(rank, .by_group = TRUE) %>%
+  ungroup()
+
+tms_nbanfl_ranks <-
+  colors_nbanfl_dist_ranks %>% 
+  left_join(
+    tms_nbanfl %>% select(name1 = name, slug1 = slug, league),
+    by = c("name1", "league")
+  )
+
+lvls_nba <-
+  tms_nbanfl_ranks %>%
+  filter(league == "nba") %>% 
+  pull(slug1)
+
+lvls_nfl <-
+  tms_nbanfl_ranks %>%
+  filter(league == "nfl") %>% 
+  pull(slug1)
+
+lvls_league_slug1 <-
+  tms_nbanfl_ranks %>%
+  arrange(league, rank) %>%
+  mutate(league_slug1 = paste0(league, "_", slug1)) %>% 
+  pull(league_slug1)
+
+colors_nbanfl_dist_viz <-
+  colors_nbanfl_dist %>%
+  tidyr::complete(name1, name2) %>% 
+  left_join(
+    tms_nbanfl %>% select(name1 = name, slug1 = slug, league),
+    by = c("name1", "league")
+  ) %>% 
+  left_join(
+    tms_nbanfl %>% select(name2 = name, slug2 = slug, league),
+    by = c("name2", "league")
+  ) %>% 
+  left_join(
+    colors_nbanfl_dist_ranks %>% select(name1, league, rank),
+    by = c("name1", "league")
+  ) %>% 
+  mutate(league_slug1 = paste0(league, "_", slug1)) %>% 
+  # mutate(slug1 = factor(slug1, levels = lvls_nba))
+  mutate(league_slug1 = factor(league_slug1, levels = lvls_league_slug1)) %>% 
+  mutate(slug1 = reorder(slug1, league_slug1))
+
+levels(colors_nbanfl_dist_viz$slug1)
+levels(colors_nbanfl_dist_viz$slug2)
+
+min_value_dist <- min(colors_nbanfl_dist$value)
+viz_colors_nbanfl_dist <-
+  colors_nbanfl_dist_viz %>%
+  # mutate(value = if_else(value == 0, min_value_dist, value)) %>% 
+  ggplot(aes(x = slug1, y = slug2)) +
+  geom_tile(aes(fill = value)) +
+  viridis::scale_fill_viridis(option = "E") +
+  facet_wrap(~league, scales = "free") +
+  theme_minimal() +
+  # theme(legend.position = "none") +
+  labs(
+    title = "Pairwise Distance of Primary Color of NFL and NBA Teams",
+    x = NULL,
+    y = NULL
+  )
+viz_colors_nbanfl_dist
 ```
 
