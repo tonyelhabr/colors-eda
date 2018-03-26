@@ -1,20 +1,20 @@
 ---
 author: ""
 date: ""
-title: "Analysis of Sport Team Colors, Part I"
+title: "Analysis of Sport Team Colors, Part 1"
 output:
   html_document:
     toc: false
 ---
 
-```{r setup, include = FALSE}
+```{r setup, echo = FALSE}
 knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
 knitr::opts_chunk$set(
   echo = TRUE,
-  # include = FALSE,
+  # echo = FALSE,
   # cache = TRUE,
-  # results = "markdown",
-  results = "hide",
+  results = "markdown",
+  # results = "hide",
   # fig.align = "center",
   # fig.show = "asis",
   fig.width = 6,
@@ -27,12 +27,12 @@ knitr::opts_chunk$set(
 
 ```
 
-When working with the [`ggplot2`](http://ggplot2.org/) package, I often find
-myself playing around with colors for more time than I probably should be.
+When working with the [{ggplot2} package](http://ggplot2.org/), I often find
+myself playing around with colors for longer than I probably should be.
 I think that this is because I know that
 the right color scheme can greatly enhance the information that a plot portrays; 
 and, conversely, choosing
-an uncomplementary palette can suppress the message of an otherwise good visualization.
+an uncomplimentary palette can suppress the message of an otherwise good visualization.
 
 With that said, I wanted to take a look at the presence of colors in the
 sports realm.
@@ -41,22 +41,32 @@ colors used by individual teams, among teams in a given sport, etc.
 (Some people have done some relatively technical research on this topic, such as studying
 the possible effects of color on fan (and player) perception of teams.)
 
+_Technical Notes:_
++ I show code only where I believe it complements the commentary throughout; otherwise,
+it is hidden. Nonetheless, the underlying code can be viewed in the raw .Rmd file for this write-up
++ I comment out all of the packages that are used in this write-up, 
+but only in an explicitly manner (i.e. via the "package::function" syntax).
+Only `{dplyr}` and `{ggplot2}` are imported altogether. Minimizing the namespace
+in this manner is a personal convention.
+
 ## Setup
 
 ```{r packages}
-# Comment out the packages whose functions will be used explicitly via the "pkg::func" syntax.
 library("dplyr")
+# library("teamcolors")
+library("ggplot2")
 # library("tidyr")
 # library("purrr")
 # library("stringr")
-library("teamcolors")
 # library("nbastatR")
 # library("nflscrapR")
-library("ggplot2")
 # library("UpSetR")
 # library("factoextra")
 # library("NbClust")
+# library("corrr")
+# library("GGally")
 # library("viridis)
+# library("corrr")
 ```
 
 The data that I'll use comes from the 
@@ -88,16 +98,19 @@ primary, secondary, tertiary, or quaternary.
 The fact that the data comes in an easy-to-work-with format comes as a relief
 to those of us used to having to clean raw data tediously.
 
-```{r}
+```{r colors_tidy}
 colors_tidy <-
   teamcolors::teamcolors %>%
   tidyr::gather(ord, hex, -name, -league)
+colors_tidy
 ```
 
+## Exploration
 
-## Exploratory Data Analysis (EDA)
+To begin, here's visualization of all the colors in this data set. Not much
+significance can be extracted from this plot, but it's still nice to have as
+a mechanism for getting familiar with the data.
 
-Here's a fairly rough visualizaton of all the colors in this data set.
 
 ```{r viz_colors_all, echo = FALSE}
 pull_distinctly <- function(data, col) {
@@ -212,8 +225,7 @@ the most colors (on a per-team basis).
 Perhaps this suggest that is the most "dull" sports league. [^fn_mlb_dull]
 The NFL is on the other end of the spectrum (pun intended), with only 1.5 %
 of missing color values. Is it a coincidence that the
-[NFL is the most popular sport in the U.S.](http://news.gallup.com/poll/224864/football-americans-favorite-sport-watch.aspx) 
-by a wide margin? [^fn_nfl_notdull]
+[NFL is the most popular sport in the U.S.](http://news.gallup.com/poll/224864/football-americans-favorite-sport-watch.aspx)? [^fn_nfl_notdull]
 
 [^fn_mlb_dull]:
 In fact,
@@ -221,7 +233,7 @@ the current consensus among sports fans is that the
 [MLB has a decaying fan-base in the U.S. because it is failing to attract younger fans](https://www.huffingtonpost.com/laura-hanby-hudgens/the-decline-of-baseball-a_b_9630782.html). 
 This opinion is typically based
 on conjectures about the game's slow pace, but, who knows, maybe colors
-also has something to do with it! (I'm kidding. I pride myself in guarding against the
+also has something to do with it! (I'm only kidding. I pride myself in guarding against the
 [correlation-equals-causation fallacy](https://en.wikipedia.org/wiki/Correlation_does_not_imply_causation).)
 
 [^fn_nfl_notdull]:
@@ -233,17 +245,17 @@ Does "dull" refer to
 
 For the sake of argument, 
 let's say that I want to interpret dullness as 
-["brightness"](https://en.wikipedia.org/wiki/Brightness)--the arithmetic mean
-of the [red-green-blue](https://en.wikipedia.org/wiki/RGB_color_model) (rgb) values of a given color.
+["brightness"](https://en.wikipedia.org/wiki/Brightness), which, in the color lexicon,
+is interpreted as the arithmetic mean
+of the [red-green-blue](https://en.wikipedia.org/wiki/RGB_color_model) (RGB) values of a color.
 To rank the leagues by brightness, I can
-take the average of the rgb values (derived from the hex values) across all colors
+take the average of the RGB values (derived from the hex values) across all colors
 for all teams in each league. The resulting values--where a lower value indicates a darker color, 
 and a higher value indicates a brighter color--provide a fair measure upon which
 each league's aggregate color choices can be judged. [^fn_technical_notes]
 
-
-[^fn_technical_notes]:
-_Technical Notes:_
+[^fn_technical_notes_2]:
+_(More) Technical Notes:_
 + I put this computation in a function because I perform the same actions multiple times.
 This practice complies with the [DRY](https://en.wikipedia.org/wiki/Don%27t_repeat_yourself) principle.
 + I was unable to get `grDevices::colo2rgb()` (and some other custom functions
@@ -252,7 +264,7 @@ I believe the problem is that `grDevices::colo2rgb()` returns a matrix instead o
 + Additionally, despite only using one element in the returned list here, I wrote
 the function to return a list of results
 because I was inspecting the different sets of results during code development.
-+ Finally, I rescale each rgb value to a value between 0 and 1--rgb is typically expressed on 
++ Finally, I re-scale each RGB value to a value between 0 and 1--RGB is typically expressed on 
 a 0 to 255 scale--in order to make the final values more interpretable.
 
 
@@ -333,7 +345,7 @@ colors_tidy_nona %>%
 
 ### Common Colors
 
-Using a slightly customzied version of the `plotrix::color.id()` function,
+Using a slightly customized version of the `plotrix::color.id()` function,
 I can attempt to identify common colors (by name) from the hex values.
 
 ```{r color_functions}
@@ -421,10 +433,10 @@ Given the "set" nature of the data set, I think that
 the [`UpSetR`](https://github.com/hms-dbmi/UpSetR) package is very useful here--it can be used to generate
 distinctive graphs for set-related data. [^fn_upsetr] 
 
-Neglecting the color black, which is unsuprisingly the most common color,
+Neglecting the color black, which is unsurprisingly the most common color,
 red has the highest count. (Consequently, it is deserving of use as the fill for the bars
 in the following plot). [^fn_upsetr_customization] On the other hand, it's a bit
-suprising to me that blue, nor its its brethren in `cyan` and `deepskyblue`, isn't among the top 2 or 3.
+unsuprising to me that blue, nor its its brethren in `cyan` and `deepskyblue`, isn't among the top 2 or 3.
 One might argue that the three shades of blue inherently cause classification
 to be more sparse for it, but this does not seem to suppress the prominence of red,
 which also has two sister colors in `orangered` and `darkpink`.
@@ -434,7 +446,7 @@ After learning about the [`UpSetR`](https://github.com/hms-dbmi/UpSetR) package 
 I'm glad to finally have a use-case to use it!
 
 [^fn_upsetr_customization]:
-Unfortuantely, it seems
+Unfortunately, it seems
 that customizing the colors
 for each set is not straightforward, so I did not do it.
 
@@ -497,7 +509,7 @@ viz_colors_sets <-
 Aside from set analysis, this data set seems prime for 
 [unsupervised learning](https://en.wikipedia.org/wiki/Unsupervised_learning), and,
 more specifically, [clustering](https://en.wikipedia.org/wiki/Cluster_analysis).
-While analysis of the rgb values of the colors can be done (and is actually
+While analysis of the RGB values of the colors can be done (and is actually
 what I tried initially), the results are not as interpretable as I would
 like it them to be due to the >2-dimensionality nature of such a method. As an alternative,
 I determined that ["hue"](https://en.wikipedia.org/wiki/Hue) serves
@@ -541,30 +553,37 @@ convert_rgb2hsl <- function(r, g, b) {
   val_max <- max(c(r, g, b))
   val_min <- min(c(r, g, b))
   h <- s <- l <- (val_max + val_min) / 2
-  if (val_max == val_min){
+  if (val_max == val_min) {
     h <- s <- 0
   } else {
     d <- val_max - val_min
-    s <- ifelse(l > 0.5, d / (2 - val_max - val_min), d / (val_max + val_min))
-    if (val_max == r) { h <- (g - b) / d + (ifelse(g < b, 6, 0)) }
-    if (val_max == g) { h <- (b - r) / d + 2 }
-    if (val_max == b) { h <- (r - g) / d + 4 }
+    s <-
+      ifelse(l > 0.5, d / (2 - val_max - val_min), d / (val_max + val_min))
+    if (val_max == r) {
+      h <- (g - b) / d + (ifelse(g < b, 6, 0))
+    }
+    if (val_max == g) {
+      h <- (b - r) / d + 2
+    }
+    if (val_max == b) {
+      h <- (r - g) / d + 4
+    }
     h <- (h / 6) * 360
   }
-  return(c(h=h, s=s, l=l))
+  c(h = h, s = s, l = l)
 }
 
 convert_hex2hsl <- function(hex, unname = FALSE) {
   rgb <- t(grDevices::col2rgb(hex))
-  hsl <- convert_rgb2hsl(rgb[1], rgb[2], rgb[3])
+  out <- convert_rgb2hsl(rgb[1], rgb[2], rgb[3])
   if(unname) {
-    hsl <- unname(hsl)
+    out <- unname(out)
   }
-  hsl
+  out
 }
 
 convert_hex2hue <- function(hex, unname = TRUE) {
-  out <- convert_hex2hsl(hex, unname)[1]
+  convert_hex2hsl(hex, unname)[1]
 }
 
 add_hsl_cols <- function(data) {
@@ -650,20 +669,20 @@ viz_kclusts <-
     caption = paste0("64-bit hex values are converted to decimal values",
                      " and are scaled to 0 to 1 range.\n",
                      "Closer to 1 ~ more white and/or strong blend
-                     of rgb colors; closer to 0 ~ more black and/or",
-                     "strong shade of single one of rgb colors.")
+                     of RGB colors; closer to 0 ~ more black and/or",
+                     "strong shade of single one of RGB colors.")
   )
 viz_kclusts
 ```
 
-While this visualization is failry informative, it doesn't quite pinpoint exactly
+While this visualization is fairly informative, it doesn't quite pinpoint exactly
 which value of k is "optimal". There are
 [various methods for determining the optimal k-value for a kmeans model]
 (http://www.sthda.com/english/articles/29-cluster-validation-essentials/96-determining-the-optimal-number-of-clusters-3-must-know-methods/), 
 one of which is the 
 ["Elbow" method](https://bl.ocks.org/rpgove/0060ff3b656618e9136b).
 Basically, the point is to plot the within-cluster sum of squares (WSS) for each
-value of k (which is typically monitonically decreasing with increasing k) and
+value of k (which is typically monotonically decreasing with increasing k) and
 pick the value of k that corresponds to the "bend" in the plot.
 
 ```{r viz_wss, echo = FALSE}
@@ -715,4 +734,11 @@ nb_fviz
 ```
 
 It's nice to see that this method comes to the same deduction.
+
+
+```{r save_session, include = FALSE, eval = FALSE}
+# session::save.session(file = file.path("data", "colors-eda-1.RData"))
+```
+
+
 
