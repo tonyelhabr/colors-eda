@@ -1,7 +1,7 @@
 ---
 author: ""
 date: ""
-title: "Analysis of Sport Team Colors"
+title: "Analysis of Sport Team Colors, Part I"
 output:
   html_document:
     toc: false
@@ -44,22 +44,25 @@ the possible effects of color on fan (and player) perception of teams.)
 ## Setup
 
 ```{r packages}
+# Comment out the packages whose functions will be used explicitly via the "pkg::func" syntax.
 library("dplyr")
-library("tidyr")
-library("purrr")
-library("stringr")
+# library("tidyr")
+# library("purrr")
+# library("stringr")
 library("teamcolors")
-library("nbastatR")
-library("nflscrapR")
+# library("nbastatR")
+# library("nflscrapR")
 library("ggplot2")
-library("UpSetR")
-library("factoextra")
-library("viridisLite")
+# library("UpSetR")
+# library("factoextra")
+# library("NbClust")
+# library("viridis)
 ```
 
-The data that I'll use comes from the `teamcolors` R package, 
+The data that I'll use comes from the 
+[{teamcolors} R package](https://github.com/beanumber/teamcolors), 
 which itself is sourced from
-[Jim Nielsen's website for `teamcolors`](http://jim-nielsen.com/teamcolors/).
+[Jim Nielsen's website of the same namesake](http://jim-nielsen.com/teamcolors/).
 This data set provides color information from teams from 
 six professional sports leagues:
 
@@ -168,20 +171,26 @@ viz_colors_all
 Note that there quite a few teams without a full set of four colors
 (and some without a third or even second color).
 
-```{r colors_pct_nas}
-colors_bylg_cnts <-
+```{r iviz_colors_nas_bylg, echo = FALSE}
+viz_colors_nas_bylg <-
   teamcolors::teamcolors %>%
   group_by(league) %>%
-  count(
-    pri = !is.na(primary),
-    sec = !is.na(secondary),
-    ter = !is.na(tertiary),
-    qua = !is.na(quaternary)
-  ) %>%
-  ungroup() %>%
-  arrange(league, desc(n))
-colors_bylg_cnts
+  summarize_at(vars(ends_with("ary")), funs(sum(is.na(.)))) %>% 
+  ungroup() %>% 
+  tidyr::gather(ord, value, -league) %>%
+  mutate(ord = factor(ord, levels = ord_nums$ord)) %>% 
+  ggplot(aes(x = ord, y = value)) +
+  geom_col(aes(group = league, fill = league), position = "dodge") +
+  teplot::scale_fill_te() +
+  viz_theme_base +
+  theme(axis.text.x = element_text(angle = 45), legend.position = "right") +
+  viz_labs_base +
+  labs(title = paste0("Missing Colors", lab_base_suffix),
+       subtitle = "Count by League and Ordinality")
+viz_colors_nas_bylg
+```
 
+```{r colors_pct_nas}
 colors_pct_nas <-
   colors_tidy %>%
   count(league, is_na = is.na(hex), sort = TRUE) %>%
@@ -230,13 +239,16 @@ To rank the leagues by brightness, I can
 take the average of the rgb values (derived from the hex values) across all colors
 for all teams in each league. The resulting values--where a lower value indicates a darker color, 
 and a higher value indicates a brighter color--provide a fair measure upon which
-each league's aggregate color choices can be judged.
+each league's aggregate color choices can be judged. [^fn_technical_notes]
 
-_Technical Note(s):_
+
+[^fn_technical_notes]:
+_Technical Notes:_
 + I put this computation in a function because I perform the same actions multiple times.
 This practice complies with the [DRY](https://en.wikipedia.org/wiki/Don%27t_repeat_yourself) principle.
 + I was unable to get `grDevices::colo2rgb()` (and some other custom functions
 used elsewhere) to work in a vectorized manner, so I created a function (`add_rgb_cols()`) to do so.
+I believe the problem is that `grDevices::colo2rgb()` returns a matrix instead of a single value.
 + Additionally, despite only using one element in the returned list here, I wrote
 the function to return a list of results
 because I was inspecting the different sets of results during code development.
@@ -258,7 +270,7 @@ rank_leagues_byrgb <- function(data = NULL) {
   colors_rgb <-
     data %>%
     add_rgb_cols() %>%
-    select(name, league, ord, red, green, blue) %>%
+    select(-hex) %>%
     arrange(league, name)
   
   colors_rgb_bynm_bylg <-
@@ -366,6 +378,7 @@ par(mfrow = c(1, 2))
 scales::show_col(colors_rnbw_hex)
 scales::show_col(colors_rnbw)
 par(mfrow = c(1, 1))
+title(main = "Names of Rainbow Hex Colors from `grDevices::rainbow()`")
 ```
 
 Now, with the setup out of the way, I can easily compute the names of each color
@@ -373,12 +386,20 @@ and identify the most common colors overall, as well as the most common
 primary and secondary colors.
 
 ```{r colors_named}
-add_color_nm_col <- function(data) {
-  data %>%
-  pull(hex) %>%
-  identify_color_name(set = colors_rnbw) %>% 
-  tibble::as_tibble() %>%
-  rename(color_nm = value) 
+add_color_nm_col <- function(data, rename = TRUE) {
+  out <-
+    data %>%
+    pull(hex) %>%
+    identify_color_name(set = colors_rnbw) %>% 
+    tibble::as_tibble() %>% 
+    bind_cols(data, .)
+  
+  if(rename) {
+    out <-
+      out %>% 
+      rename(color_nm = value)
+  }
+  out
 }
 
 colors_named <-
@@ -389,10 +410,10 @@ colors_named %>%
   count(color_nm, sort = TRUE)
 colors_named %>%
   count(ord, color_nm, sort = TRUE) %>% 
-  filter(ord == "primary")
-colors_named %>%
-  count(ord, color_nm, sort = TRUE) %>% 
-  filter(ord == "secondary")
+  filter(ord %in% c("primary", "secondary")) %>% 
+  group_by(ord) %>% 
+  mutate(rank_byord = row_number(desc(n))) %>% 
+  do(head(., 5))
 ```
 
 Of course, a good visualization to accompany a result set is appreciated.
@@ -466,30 +487,45 @@ viz_colors_sets <-
     mainbar.y.label = "Color Intersections",
     sets.x.label = "Overall Count",
     # text.scale = c(rep(1.3, length(colors_nms_include)), 1),
+    mb.ratio = c(0.6, 0.4),
     order.by = "freq"
   )
 ```
 
-### Clustering, By Hue
+### Color Clustering
 
 Aside from set analysis, this data set seems prime for 
 [unsupervised learning](https://en.wikipedia.org/wiki/Unsupervised_learning), and,
 more specifically, [clustering](https://en.wikipedia.org/wiki/Cluster_analysis).
 While analysis of the rgb values of the colors can be done (and is actually
 what I tried initially), the results are not as interpretable as I would
-like it them to be due to >2-dimensionality nature of such a method. As an alternative,
+like it them to be due to the >2-dimensionality nature of such a method. As an alternative,
 I determined that ["hue"](https://en.wikipedia.org/wiki/Hue) serves
 as a reasonable all-in-one measure of the "essence" of a color. It
-is a radial-type of value--that is, its value can
-range from 0 to 360, where red is 0 green is 120, blue is 240. (Red is also 360.)
+is a radial type of value--that is, its value can
+range from 0 to 360 (where red is 0 green is 120, blue is 240). [^fn_hue]
 
-Using a handful of custom functions for transforming the data, and implementing
-a tidy pipeline for statistical analysis using 
-[David Robinson](http://varianceexplained.org/)'s [`broom`](https://github.com/tidyverse/broom) package
-(and its [kmeans vignette](https://cran.r-project.org/web/packages/broom/vignettes/kmeans.html) as a guide), 
-I can easily explore various values of k in a kmeans model for the data.
+[^fn_hue]:
+Red is also 360.
 
-```{r colors_tidy_ord2}
+To go along with hue, the ordinality of each color with respect to each team
+(i.e. primary = 1, secondary = 2, etc.) constitutes a worthwhile secondary feature.
+Because most teams have at least two colors, but not many have a full palette of four,
+I decided to limit this clustering analysis to just the primary and secondary colors.
+
+Thus, my cluster analysis takes the following two factors as inputs:
++ hue (`hue`), ranging from 0 to 360; and
++ ordinality (`ord`), either 1 or 2.
+
+With my setup decided upon, I can implement a
+a tidy pipeline for statistical analysis--making heavy use of
+[David Robinson](http://varianceexplained.org/)'s [{broom} package](https://github.com/tidyverse/broom)--to 
+explore various values of k in a kmeans model for the data.
+(The package's
+[kmeans vignette](https://cran.r-project.org/web/packages/broom/vignettes/kmeans.html)
+provides a really helpful example.)
+
+```{r colors_tidy_ord2, echo = FALSE}
 colors_tidy_ord2 <-
   colors_tidy %>%
   filter(ord %in% c("primary", "secondary")) %>% 
@@ -518,30 +554,53 @@ convert_rgb2hsl <- function(r, g, b) {
   return(c(h=h, s=s, l=l))
 }
 
-convert_hex2hue <- function(hex) {
+convert_hex2hsl <- function(hex, unname = FALSE) {
   rgb <- t(grDevices::col2rgb(hex))
   hsl <- convert_rgb2hsl(rgb[1], rgb[2], rgb[3])
-  unname(hsl["h"])
+  if(unname) {
+    hsl <- unname(hsl)
+  }
+  hsl
 }
-convert_hex2hue(hex_unique[1])
-```
 
+convert_hex2hue <- function(hex, unname = TRUE) {
+  out <- convert_hex2hsl(hex, unname)[1]
+}
 
-```{r km_data}
-add_hue_col <- function(data) {
+add_hsl_cols <- function(data) {
   data %>%
+    pull(hex) %>%
+    purrr::map(convert_hex2hsl) %>% 
+    purrr::reduce(rbind) %>% 
+    tibble::as_tibble() %>%
+    bind_cols(data, .)
+}
+
+add_hue_col <- function(data, rename = TRUE) {
+  out <-
+    data %>%
     pull(hex) %>%
     purrr::map_dbl(convert_hex2hue) %>% 
     tibble::as_tibble() %>%
-    bind_cols(data, .) %>% 
-    rename(hue = value)
+    bind_cols(data, .)
+  
+  if(rename) {
+    out <-
+      out %>% 
+      rename(hue = value)
+  }
+  out
 }
 
+```
+
+
+```{r km_data, echo = FALSE}
 km_data <-
   colors_tidy_ord2 %>%
   add_hue_col() %>% 
   select(name, ord, hue) %>% 
-  tidyr::spread(ord, heu)
+  tidyr::spread(ord, hue)
 km_data
 ```
 
@@ -598,9 +657,14 @@ viz_kclusts
 ```
 
 While this visualization is failry informative, it doesn't quite pinpoint exactly
-which value of k is "optimal". There are various methods for determining the
-optimal k-value for a kmeans model, one of which the "Elbow" method.
-
+which value of k is "optimal". There are
+[various methods for determining the optimal k-value for a kmeans model]
+(http://www.sthda.com/english/articles/29-cluster-validation-essentials/96-determining-the-optimal-number-of-clusters-3-must-know-methods/), 
+one of which is the 
+["Elbow" method](https://bl.ocks.org/rpgove/0060ff3b656618e9136b).
+Basically, the point is to plot the within-cluster sum of squares (WSS) for each
+value of k (which is typically monitonically decreasing with increasing k) and
+pick the value of k that corresponds to the "bend" in the plot.
 
 ```{r viz_wss, echo = FALSE}
 labs_x_wss <- seq(2, 8, by = 2)
@@ -610,7 +674,7 @@ viz_wss <-
   mutate(k = as.integer(k)) %>% 
   ggplot(aes(k, tot.withinss)) +
   geom_line() +
-  # scale_y_continuous(breaks = scales::comma_format) +
+  scale_y_continuous(labels = scales::comma_format()) +
   scale_x_continuous(breaks = labs_x_wss, labels = labs_x_wss) +
   teplot::theme_te() +
   labs(
@@ -624,36 +688,16 @@ viz_wss <-
 viz_wss
 ```
 
+For those who enjoy calculus, the k value for which the second derivative
+of the curve is minimized is the optimal value (by the Elbow method).
+
 ```{r kms_metrics}
 kms_metrics$tot.withinss[1:8] %>%  diff(differences = 2) %>% which.min() + 2
 ```
 
-
-```{r fviz_nbclust, include = FALSE, eval = FALSE}
-# Reference(s):
-# + http://www.sthda.com/english/articles/29-cluster-validation-essentials/
-# 96-determining-the-optimal-number-of-clusters-3-must-know-methods/.
-# + https://uc-r.github.io/kmeans_clustering
-km_wss <-
-  factoextra::fviz_nbclust(km_data, kmeans, method = "wss", k.max = 20)
-km_wss$data$y %>%  diff(differences = 2) %>% which.min() + 2
-
-km_silh <-
-  factoextra::fviz_nbclust(km_data, kmeans, method = "silhouette", k.max = 20)
-km_silh$data$y %>% which.max()
-
-set.seed(seed)
-km_gap <-
-  factoextra::fviz_nbclust(
-    km_data,
-    kmeans,
-    nstart = 10,
-    k.max = 20,
-    method = "gap_stat",
-    nboot = 50
-  )
-km_gap$data$SE.sim %>% which.max()
-```
+The [`factorextra` package](https://github.com/kassambara/factoextra) has a nice 
+function (`fviz_nbclust()`) to summarize
+the optimal k value chosen by the consensus of a handful of different methods.
 
 ```{r nb_fviz, echo = FALSE}
 nb_fviz <-
@@ -670,258 +714,5 @@ nb_fviz <-
 nb_fviz
 ```
 
-
-## Clustering, by RGB
-
-Now, I'll take a closer look at the two leagues that I follow most closely--the NBA
-and the NFL. Because I'll end up plotting team names at some point, I want
-to get the official abbreviations for each team. I can use data/methods
-from [Alex Bresler](http://asbcllc.com/)'s 
-[`nbastatR`](https://github.com/abresler/nbastatR) package and 
-[Maksim Horowitz](https://github.com/maksimhorowitz)'s
-[`nflscrapR`](https://github.com/maksimhorowitz/nflscrapR) package to do so
-
-```{r tms_nbanfl}
-nbastatR::assign_nba_teams()
-tms_nba <-
-  teamcolors::teamcolors %>% 
-  filter(league == "nba") %>% 
-  inner_join(
-    df_dict_nba_teams %>%
-      setNames(snakecase::to_snake_case(names(.))) %>%
-      filter(!is_non_nba_team) %>% 
-      select(name = name_team, slug = slug_team),
-    by = c("name")
-  )
-
-identify_tm_mascot <- function(x) {
-  stringr::str_replace_all(x, "^.*\\s", "")
-}
-
-# Need an alternative method of joining since the names are not
-# identical across `teamcolors::teamcolors` and `nflscrapR::nflteams`.
-tms_nfl <-
-  teamcolors::teamcolors %>% 
-  filter(league == "nfl") %>% 
-  mutate(mascot = identify_tm_mascot(name)) %>% 
-  inner_join(
-    nflscrapR::nflteams %>%
-      setNames(snakecase::to_snake_case(names(.))) %>%
-      mutate_all(as.character) %>% 
-      mutate(mascot = identify_tm_mascot(team_name)) %>% 
-      select(slug = abbr, mascot),
-    by = c("mascot")
-  ) %>% 
-  select(-mascot)
-
-tms_nbanfl <- bind_rows(tms_nba, tms_nfl)
-```
-
-After grabbing the abbreviations (or `slug`s), I can move on to breaking up
-the hex values into their rgb components. (I use the same method as the one used before.)
-I'll be looking at only the primary and secondary colors again.
-
-
-```{r colors_nbanfl_ord2_rgb_tidy}
-colors_nbanfl_tidy_ord2 <-
-  tms_nbanfl %>% 
-  select(name, league, slug) %>% 
-  inner_join(colors_tidy_ord2, by = c("name", "league"))
-
-add_rgb <- function(data) {
-  data %>%
-    pull(hex) %>%
-    grDevices::col2rgb() %>%
-    t() %>%
-    tibble::as_tibble() %>%
-    bind_cols(data, .) %>% 
-}
-
-colors_nbanfl_ord2_rgb <-
-  colors_nbanfl_tidy_ord2 %>%
-  add_rgb() %>% 
-  select(slug, name, league, ord, red, green, blue)
-
-colors_nbanfl_ord2_rgb_tidy <-
-  colors_nbanfl_ord2_rgb %>%
-  tidyr::gather(rgb, value, red, green, blue)
-colors_nbanfl_ord2_rgb_tidy
-```
-
-With the rgb values extracted, I can use the `widyr::pairwise_dist()` function
-(which defaults to a "Euclidean" metric of distance) to compute the relative
-distance among teams in terms of rgb values for each color ordinality.
-
-```{r colors_nbanfl_dist}
-# Verified that "eculidean" and "manhattan" methods are highly correlated for rgb values.
-colors_nbanfl_dist <-
-  colors_nbanfl_ord2_rgb_tidy %>%
-  group_by(ord) %>% 
-  widyr::pairwise_dist(name, rgb, value, upper = TRUE, method = dist_method) %>% 
-  rename(name1 = item1, name2 = item2, value = distance) %>% 
-  # select(everything(), value = ncol(.)) %>% 
-  arrange(value, .by_group = TRUE) %>% 
-  # widyr::pairwise_cor(name, rgb, value, upper = TRUE) %>% 
-  # rename(name1 = item1, name2 = item2, value = correlation) %>% 
-  # arrange(value) %>% 
-  left_join(tms_nbanfl %>% select(name1 = name, league1 = league), by = c("name1")) %>%
-  left_join(tms_nbanfl %>% select(name2 = name, league2 = league), by = c("name2")) %>% 
-  ungroup()
-
-cor(x1, x2)
-xj <-
-  left_join(rename(x1, value1 = value), rename(x2, value2 = value))
-corrr::correlate(select_if(xj, is.numeric))
-```
-
-```{r colors_nbanfl_dist_debug, include = FALSE, echo = FALSE}
-colors_nbanfl_dist %>% 
-  group_by(ord, name1) %>% 
-  do(slice(., c(1, n()))) %>% 
-  ungroup()
-colors_nbanfl_dist %>% 
-  arrange(value) %>%
-  filter(ord == "primary") %>% 
-  filter(value != 0) %>% 
-  slice(c(1:10, c(n()-9):n())) %>% 
-  ungroup()
-colors_nbanfl_ord2_rgb_tidy %>%
-  filter(name %in% c("San Antonio Spurs", "Pittsburgh Steelers", "Brooklyn Nets")) %>%
-  spread(rgb, value)
-sqrt(201^2 + 195^2 + 186^2)
-201 + 195 + 186
-```
-
-Finally, I can visualize the distances using a "heat-map"-like plot.
-In order to make the plot more insightful, I order the teams on each axis
-by total distance from all other teams. (So teams with the most similarity to all
-other teams appear towards the bottom and left, while teams that
-contrast most with all others appear towards the top and right.)
-
-```{r viz_colors_nbanfl_dist_byord_setup, echo = FALSE, include = FALSE}
-colors_nbanfl_dist_ranks <-
-  colors_nbanfl_dist %>%
-  group_by(ord, name1) %>%
-  summarize(value = sum(value)) %>%
-  ungroup() %>%
-  group_by(name1) %>% 
-  summarize(value = sum(value)) %>% 
-  ungroup() %>% 
-  mutate(rank = row_number(value)) %>% 
-  arrange(rank)
-colors_nbanfl_dist_ranks
-tms_nbanfl_ranks <-
-  colors_nbanfl_dist_ranks %>% 
-  left_join(
-    tms_nbanfl %>% select(name1 = name, slug1 = slug, league),
-    by = c("name1")
-  )
-lvls_nbanfl_ranks <-
-  tms_nbanfl_ranks %>%
-  pull(name1)
-
-labs_nbanfl_ranks <-
-  tms_nbanfl_ranks %>%
-  pull(slug1)
-```
-
-```{r colors_nbanfl_dist_byord_viz, echo = FALSE}
-create_colors_nbanfl_dist_viz <- function(data) {
-  data %>% 
-    # tidyr::complete(name1, name2) %>% 
-    inner_join(
-      colors_nbanfl_dist_ranks %>% select(name1, rank1 = rank),
-      by = c("name1")
-    ) %>% 
-    inner_join(
-      colors_nbanfl_dist_ranks %>% select(name2 = name1, rank2 = rank),
-      by = c("name2")
-    ) %>% 
-    # mutate_at(vars(name1, name2), funs(factor(., levels = lvls_nbanfl_ranks)))
-    mutate(name1 = reorder(name1, rank1),
-           name2 = reorder(name2, rank2))
-}
-colors_nbanfl_dist_byord_viz <-
-  colors_nbanfl_dist %>%
-  create_colors_nbanfl_dist_viz()
-```
-
-
-```{r colors_nbanfl_dist_byord_viz_debug, include = FALSE, eval = FALSE}
-# colors_nbanfl_dist_viz %>% arrange(rank1)
-# colors_nbanfl_dist_viz %>% arrange(name1)
-# levels(colors_nbanfl_dist_viz$name1)
-# levels(colors_nbanfl_dist_viz$name2)
-```
-
-```{r viz_colors_nbanfl_dist_byord, echo = FALSE}
-lab_subtitle_nbanfl <-
-  stringr::str_replace_all(lab_subtitle_kclusts, lab_lgs, "NBA and NFL")
-lab_caption_nbanfl <-
-  paste0(
-    "Dark = similar; light = dissimilar.",
-    "Similarity is based on Euclidean distance of rgb values.\n",
-    " Order is determined by overall similarity across both primary and secondary colors.",
-    "\n Top 2% similar and dissimilar team-team colors emphasized with black and white respectively."
-  )
-viz_labs_colors_nbanfl_dist <-
-  labs(
-    title = "Pairwise Distance of Colors",
-    subtitle = lab_subtitle_nbanfl,
-    caption = lab_caption_nbanfl,
-    x = NULL,
-    y = NULL
-  )
-
-visualize_colors_nbanfl_dist_const <-
-  function(data) {
-    data_pranked <-
-      data %>% 
-      mutate(value_prank = percent_rank(value))
-    data %>% 
-      # filter(league1 == league2) %>%
-      # mutate(lg_ord = paste0(toupper(league1), ", ", stringr::str_to_title(ord))) %>% 
-      mutate(value = ifelse(is.na(value), 0, value)) %>% 
-      ggplot(aes(x = name1, y = name2)) +
-      geom_tile(aes(fill = value)) +
-      scale_x_discrete(labels = labs_nbanfl_ranks) +
-      scale_y_discrete(labels = labs_nbanfl_ranks) +
-      viridis::scale_fill_viridis(option = "E") +
-      # scale_fill_gradient(low = "black", high = "white") +
-      geom_tile(
-        data = data_pranked %>%
-          filter(value_prank <= 0.02),
-        fill = "green"
-      ) +
-      geom_tile(
-        data = data_pranked %>%
-          filter(value_prank >= 0.98),
-        fill = "red"
-      ) +
-      viz_theme_base +
-      theme(axis.text.x = element_text(angle = 90)) +
-      viz_labs_colors_nbanfl_dist
-  }
-
-viz_colors_nbanfl_dist_byord <-
-  colors_nbanfl_dist_byord_viz %>%
-  visualize_colors_nbanfl_dist_const() +
-  facet_wrap(~ ord, scales = "free")
-viz_colors_nbanfl_dist_byord
-```
-
-
-```{r viz_colors_nbanfl_dist, echo = FALSE}
-colors_nbanfl_dist_viz <-
-  colors_nbanfl_dist %>%
-  group_by(name1, name2, league1, league2) %>% 
-  summarize(value = sum(value)) %>% 
-  ungroup() %>% 
-  create_colors_nbanfl_dist_viz()
-
-viz_colors_nbanfl_dist <-
-  colors_nbanfl_dist_viz %>%
-  visualize_colors_nbanfl_dist_const()
-viz_colors_nbanfl_dist
-```
+It's nice to see that this method comes to the same deduction.
 

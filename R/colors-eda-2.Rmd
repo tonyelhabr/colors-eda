@@ -1,0 +1,370 @@
+---
+author: ""
+date: ""
+title: "Analysis of Sport Team Colors, Part I"
+output:
+  html_document:
+    toc: false
+---
+
+
+## Color Similarity
+
+Now, I'll take a closer look at the two leagues that I follow most closely--the NBA
+and the NFL. Because I'll end up plotting team names at some point, I want
+to get the official abbreviations for each team. I can use data/methods
+from [Alex Bresler](http://asbcllc.com/)'s 
+[{nbastatR} package](https://github.com/abresler/nbastatR) and 
+[Maksim Horowitz](https://github.com/maksimhorowitz)'s
+[{nflscrapR} package](https://github.com/maksimhorowitz/nflscrapR) to do so.
+
+```{r nms_nbanfl}
+nbastatR::assign_nba_teams()
+nms_nba <-
+  teamcolors::teamcolors %>% 
+  filter(league == "nba") %>% 
+  inner_join(
+    df_dict_nba_teams %>%
+      setNames(snakecase::to_snake_case(names(.))) %>%
+      filter(!is_non_nba_team) %>% 
+      select(name = name_team, slug = slug_team),
+    by = c("name")
+  )
+
+identify_tm_mascot <- function(x) {
+  stringr::str_replace_all(x, "^.*\\s", "")
+}
+
+# Need an alternative method of joining since the names are not
+# identical across `teamcolors::teamcolors` and `nflscrapR::nflteams`.
+nms_nfl <-
+  teamcolors::teamcolors %>% 
+  filter(league == "nfl") %>% 
+  mutate(mascot = identify_tm_mascot(name)) %>% 
+  inner_join(
+    nflscrapR::nflteams %>%
+      setNames(snakecase::to_snake_case(names(.))) %>%
+      mutate_all(as.character) %>% 
+      mutate(mascot = identify_tm_mascot(team_name)) %>% 
+      select(slug = abbr, mascot),
+    by = c("mascot")
+  ) %>% 
+  select(-mascot)
+
+nms_nbanfl <- bind_rows(nms_nba, nms_nfl)
+```
+
+After grabbing the abbreviations (or `slug`s), I can move on to breaking up
+the hex values into their rgb components. (I use the same method as the one used before.)
+I'll be looking at only the primary and secondary colors again.
+
+
+```{r colors_nbanfl_ord2_rgb_tidy}
+colors_nbanfl_tidy_ord2 <-
+  nms_nbanfl %>% 
+  select(name, league, slug) %>% 
+  inner_join(colors_tidy_ord2, by = c("name", "league"))
+
+colors_nbanfl_ord2_rgb_tidy <-
+  colors_nbanfl_tidy_ord2 %>%
+  add_rgb_cols() %>% 
+  select(-hex) %>%
+  tidyr::gather(rgb, value, red, green, blue)
+colors_nbanfl_ord2_rgb_tidy
+```
+
+With the rgb values extracted, I can use the `widyr::pairwise_dist()` function
+(which defaults to a "Euclidean" metric of distance) to compute the relative
+distance among teams in terms of rgb values for each color ordinality. [^fn_pairwise_dist] [^fn_pairwise_similarity]
+
+[^fn_pairwise_dist]:
+I tried a "Manhattan" method and got nearly identical results.
+
+[^fn_pairwise_similarity]:
+The `widyr::pairwise_similarity()` function might also be used here.
+
+```{r colors_nbanfl_ord2_rgb_dist}
+do_pairwise_dist <- function(data, method) {
+  data %>% 
+    group_by(ord) %>% 
+    widyr::pairwise_dist(name, rgb, value, upper = TRUE, method = method) %>% 
+    rename(name1 = item1, name2 = item2) %>% 
+    select(everything(), value = ncol(.)) %>% 
+    arrange(value, .by_group = TRUE) %>% 
+    ungroup()
+}
+
+colors_nbanfl_ord2_rgb_dist <-
+  colors_nbanfl_ord2_rgb_tidy %>%
+  do_pairwise_dist("euclidean")
+```
+
+```{r colors_nbanfl_ord2_rgb_vs_rgb_dist}
+correlate_pairwise_out2 <- function(data1, data2) {
+  corrr::correlate(
+    data1 %>% 
+      rename(value1 = value) %>% 
+      left_join(data2 %>% rename(value2 = value)) %>%
+      select_if(is.numeric)
+  )
+}
+
+correlate_pairwise_out2(
+  colors_nbanfl_ord2_rgb_dist, 
+  colors_nbanfl_ord2_rgb_tidy %>%
+    do_pairwise_dist("manhattan") 
+)
+```
+
+
+```{r colors_nbanfl_ord2_hsl_tidy}
+colors_nbanfl_ord2_hsl_tidy <-
+  colors_nbanfl_tidy_ord2 %>%
+  add_hsl_cols() %>% 
+  select(-hex) %>%
+  tidyr::gather(rgb, value, h, s, l)
+```
+
+```{r colors_nbanfl_ord2_hsl_vs_hsl_dist}
+correlate_pairwise_out2(
+  colors_nbanfl_ord2_hsl_tidy %>%
+    do_pairwise_dist("euclidean"),
+  colors_nbanfl_ord2_hsl_tidy %>%
+    do_pairwise_dist("manhattan")
+)
+```
+
+```{r colors_nbanfl_ord2_rgb_vs_hsl_dist}
+correlate_pairwise_out2(
+  colors_nbanfl_ord2_rgb_tidy %>%
+    do_pairwise_dist("euclidean"),
+  colors_nbanfl_ord2_hsl_tidy %>%
+    do_pairwise_dist("euclidean")
+)
+```
+
+```{r colors_nbanfl_ord2_rgb_sim}
+do_pairwise_similarity_byord <- function(data, ord) {
+  data %>%
+    filter(ord == ord) %>% 
+    select(-ord) %>% 
+    widyr::pairwise_similarity(name, rgb, value) %>% 
+    rename(name1 = item1, name2 = item2) %>% 
+    select(everything(), value = ncol(.)) %>% 
+    mutate(ord = ord) %>% 
+    select(ord, everything()) %>% 
+    arrange(desc(value))
+}
+
+do_pairwise_similarity <- function(data, ords = c("primary", "secondary")) {
+  bind_rows(
+    data %>% 
+      do_pairwise_similarity_byord(ords[1]),
+    data %>% 
+      do_pairwise_similarity_byord(ords[2])
+  )
+}
+
+colors_nbanfl_ord2_rgb_sim <-
+  colors_nbanfl_ord2_rgb_tidy %>% 
+  do_pairwise_similarity()
+```
+
+```{r corrr_rgb_hsl_dist_sim}
+cor_data <-
+  colors_nbanfl_ord2_rgb_tidy %>% 
+  do_pairwise_dist("euclidean") %>% 
+  rename(rgb_dist = value) %>% 
+  left_join(
+    colors_nbanfl_ord2_hsl_tidy %>% 
+      do_pairwise_dist("euclidean") %>% 
+      rename(hsl_dist = value)
+  ) %>%
+  left_join(
+    colors_nbanfl_ord2_rgb_tidy %>% 
+      do_pairwise_similarity() %>% 
+      rename(rgb_sim = value)
+  ) %>% 
+  left_join(
+    colors_nbanfl_ord2_hsl_tidy %>% 
+      do_pairwise_similarity() %>% 
+      rename(hsl_sim = value)
+  ) %>% 
+  select_if(is.numeric)
+corrr_rgb_hsl_dist_sim <- corrr::correlate(cor_data)
+
+corrr_rgb_hsl_dist_sim %>% 
+  corrr::network_plot(
+    min_cor = 0, 
+    colors = c("red", "green")
+  )
+
+GGally::ggcorr(cor_data, label = TRUE, label_round = 2)
+```
+[What is the best method for identifying similarity between colors?](https://stackoverflow.com/questions/5392061/algorithm-to-check-similarity-of-colors)
+
+```{r colors_nbanfl_ord2_compare}
+# colors_nbanfl_ord2_compare <- colors_nbanfl_ord2_rgb_dist
+colors_nbanfl_ord2_compare <- colors_nbanfl_ord2_rgb_sim
+# colors_nbanfl_ord2_compare <- 
+#   colors_nbanfl_ord2_hsl_tidy %>% 
+#   do_pairwise_similarity()
+```
+
+```{r colors_nbanfl_ord2_rgb_dist_debug, include = FALSE, echo = FALSE}
+colors_nbanfl_ord2_compare %>% 
+  group_by(ord, name1) %>% 
+  do(slice(., c(1, n()))) %>% 
+  ungroup()
+colors_nbanfl_ord2_compare %>% 
+  arrange(value) %>%
+  filter(ord == "primary") %>% 
+  filter(value != 0) %>% 
+  slice(c(1:10, c(n()-9):n())) %>% 
+  ungroup()
+colors_nbanfl_ord2_rgb_tidy %>%
+  filter(name %in% c("San Antonio Spurs", "Pittsburgh Steelers", "Brooklyn Nets")) %>%
+  tidyr::spread(rgb, value)
+```
+
+Finally, I can visualize the distances using a "heat-map"-like plot.
+In order to make the plot more insightful, I order the teams on each axis
+by total distance from all other teams. (So teams with the most similarity to all
+other teams appear towards the bottom and left, while teams that
+contrast most with all others appear towards the top and right.)
+
+
+```{r viz_colors_nbanfl_ord2_compare_byord_setup, include = FALSE}
+add_nm_and_lg_cols <- function(data) {
+  data %>%
+  left_join(nms_nbanfl %>% select(name1 = name, league1 = league), by = c("name1")) %>%
+  left_join(nms_nbanfl %>% select(name2 = name, league2 = league), by = c("name2"))
+}
+
+colors_nbanfl_ord2_compare_ranks <-
+  colors_nbanfl_ord2_compare %>%
+  add_nm_and_lg_cols() %>% 
+  group_by(ord, name1) %>%
+  summarize(value = sum(value)) %>%
+  ungroup() %>%
+  group_by(name1) %>% 
+  summarize(value = sum(value)) %>% 
+  ungroup() %>% 
+  mutate(rank = row_number(value)) %>% 
+  arrange(rank)
+colors_nbanfl_ord2_compare_ranks
+nms_nbanfl_ranks <-
+  colors_nbanfl_ord2_compare_ranks %>% 
+  left_join(
+    nms_nbanfl %>% select(name1 = name, slug1 = slug, league),
+    by = c("name1")
+  )
+lvls_nbanfl_ranks <-
+  nms_nbanfl_ranks %>%
+  pull(name1)
+
+labs_nbanfl_ranks <-
+  nms_nbanfl_ranks %>%
+  pull(slug1)
+```
+
+```{r colors_nbanfl_ord2_compare_byord_viz, echo = FALSE}
+create_colors_nbanfl_ord2_compare_viz <- function(data, ranks) {
+  data %>% 
+    # tidyr::complete(name1, name2) %>% 
+    inner_join(
+      ranks %>% select(name1, rank1 = rank),
+      by = c("name1")
+    ) %>% 
+    inner_join(
+      ranks %>% select(name2 = name1, rank2 = rank),
+      by = c("name2")
+    ) %>% 
+    # mutate_at(vars(name1, name2), funs(factor(., levels = lvls_nbanfl_ranks)))
+    mutate(name1 = reorder(name1, rank1),
+           name2 = reorder(name2, rank2))
+}
+colors_nbanfl_ord2_compare_byord_viz <-
+  colors_nbanfl_ord2_compare  %>%
+  create_colors_nbanfl_ord2_compare_viz(colors_nbanfl_ord2_compare_ranks)
+```
+
+
+```{r colors_nbanfl_ord2_compare_byord_viz_debug, include = FALSE, eval = FALSE}
+# colors_nbanfl_ord2_compare_viz %>% arrange(rank1)
+# colors_nbanfl_ord2_compare_viz %>% arrange(name1)
+# levels(colors_nbanfl_ord2_compare_viz$name1)
+# levels(colors_nbanfl_ord2_compare_viz$name2)
+```
+
+```{r viz_colors_nbanfl_ord2_compare_byord, echo = FALSE}
+lab_subtitle_nbanfl <-
+  stringr::str_replace_all(lab_subtitle_kclusts, lab_lgs, "NBA and NFL")
+lab_caption_nbanfl <-
+  paste0(
+    "Dark = similar; light = dissimilar.",
+    "Similarity is based on Euclidean distance of rgb values.\n",
+    " Order is determined by overall similarity across both primary and secondary colors.",
+    "\n Top 2% similar and dissimilar team-team colors emphasized with black and white respectively."
+  )
+viz_labs_colors_nbanfl_ord2_compare <-
+  labs(
+    title = "Pairwise Distance of Colors",
+    subtitle = lab_subtitle_nbanfl,
+    caption = lab_caption_nbanfl,
+    x = NULL,
+    y = NULL
+  )
+
+visualize_colors_nbanfl_ord2_compare_const <-
+  function(data) {
+    data_pranked <-
+      data %>% 
+      mutate(value_prank = percent_rank(value))
+    data %>% 
+      # filter(league1 == league2) %>%
+      # mutate(lg_ord = paste0(toupper(league1), ", ", stringr::str_to_title(ord))) %>% 
+      mutate(value = ifelse(is.na(value), 0, value)) %>% 
+      ggplot(aes(x = name1, y = name2)) +
+      geom_tile(aes(fill = value)) +
+      scale_x_discrete(labels = labs_nbanfl_ranks) +
+      scale_y_discrete(labels = labs_nbanfl_ranks) +
+      viridis::scale_fill_viridis(option = "E") +
+      # scale_fill_gradient(low = "black", high = "white") +
+      geom_tile(
+        data = data_pranked %>%
+          filter(value_prank <= 0.02),
+        fill = "green"
+      ) +
+      geom_tile(
+        data = data_pranked %>%
+          filter(value_prank >= 0.98),
+        fill = "red"
+      ) +
+      viz_theme_base +
+      theme(axis.text.x = element_text(angle = 90)) +
+      viz_labs_colors_nbanfl_ord2_compare
+  }
+
+viz_colors_nbanfl_ord2_compare_byord <-
+  colors_nbanfl_ord2_compare_byord_viz %>%
+  visualize_colors_nbanfl_ord2_compare_const() +
+  facet_wrap(~ ord, scales = "free")
+viz_colors_nbanfl_ord2_compare_byord
+```
+
+
+```{r viz_colors_nbanfl_ord2_compare, echo = FALSE}
+colors_nbanfl_ord2_compare_viz <-
+  colors_nbanfl_ord2_compare %>%
+  group_by(name1, name2, league1, league2) %>% 
+  summarize(value = sum(value)) %>% 
+  ungroup() %>% 
+  create_colors_nbanfl_ord2_compare_viz(colors_nbanfl_ord2_compare_ranks)
+
+viz_colors_nbanfl_ord2_compare <-
+  colors_nbanfl_ord2_compare_viz %>%
+  visualize_colors_nbanfl_ord2_compare_const()
+viz_colors_nbanfl_ord2_compare
+```
+
