@@ -16,7 +16,7 @@ knitr::opts_chunk$set(
   results = "markdown",
   # results = "hide",
   # fig.align = "center",
-  # fig.show = "asis",
+  fig.show = "asis",
   fig.width = 10,
   fig.height = 6,
   # out.width = 6,
@@ -60,6 +60,7 @@ library("ggplot2")
 # library("tidyr")
 # library("purrr")
 # library("stringr")
+# library("stringi")
 # library("nbastatR")
 # library("nflscrapR")
 # library("UpSetR")
@@ -86,8 +87,31 @@ six professional sports leagues:
 + NHL (hockey).
 
 
+```{r create_kable, include = FALSE}
+create_kable <- function(data, num_show = 10) {
+  
+  num_rows <- nrow(data)
+  show_fn <- ifelse(num_rows > num_show, TRUE, FALSE)
+  if(show_fn) {
+    data <- data %>% slice(1:num_show)
+  }
+  
+  out <-
+    data %>% 
+    knitr::kable( "html", escape = FALSE) %>%
+    kableExtra::kable_styling(full_width = FALSE, position = "center")
+  
+  if(show_fn) {
+    out <-
+      out %>%
+      kableExtra::add_footnote(c(sprintf("# of total rows: %.0f", num_rows)), notation = "number")
+  }
+  out
+}
+```
+
 ```{r teamcolors}
-teamcolors::teamcolors
+teamcolors::teamcolors %>% create_kable()
 ```
 
 Putting this data in a "tidy" format is rather straightforward. [^fn_munging] [^fn_ord]
@@ -105,7 +129,7 @@ primary, secondary, tertiary, or quaternary.
 colors_tidy <-
   teamcolors::teamcolors %>%
   tidyr::gather(ord, hex, -name, -league)
-colors_tidy
+colors_tidy %>% create_kable()
 ```
 
 ## Exploration
@@ -159,12 +183,16 @@ viz_theme_base <-
     plot.caption = element_text(face = "plain"),
     axis.text.x = element_text(angle = 90)
   )
+
 viz_labs_base <-
   labs(x = NULL, y = NULL)
 lab_lgs <- stringi::stri_replace_last_fixed(paste(toupper(lgs), collapse = ", "), ", ", ", and ")
 lab_base_suffix <-
   paste0(" for All Teams in the ", lab_lgs)
-
+lab_title_colors_all <- paste0("Colors", lab_base_suffix)
+lab_caption_colors_all <- 
+  paste0("Colors are stacked for each individual team.\n",
+         "Source: `teamcolors` R package.")
 viz_colors_all <-
   colors_tidy %>%
   left_join(ord_nums, by = "ord") %>% 
@@ -177,9 +205,9 @@ viz_colors_all <-
   theme(panel.background = element_rect(), axis.text.y = element_blank()) +
   viz_labs_base +
   labs(
-    title = paste0("Colors", lab_base_suffix),
-    caption = paste0("Colors are stacked for each individual team.\n",
-                     "Source: `teamcolors` R package."))
+    title = lab_title_colors_all,
+    caption = lab_caption_colors_all
+  )
 viz_colors_all
 ```
 
@@ -188,7 +216,9 @@ viz_colors_all
 Note that there are quite a few teams without a full set of four colors
 (and some without a third or even second color).
 
-```{r iviz_colors_nas_bylg, echo = FALSE}
+```{r viz_colors_nas_bylg, echo = FALSE}
+lab_title_colors_nas_bylg <- paste0("Missing Colors", lab_base_suffix)
+lab_subtitle_colors_nas_bylg <- "Count by League and Ordinality"
 viz_colors_nas_bylg <-
   teamcolors::teamcolors %>%
   group_by(league) %>%
@@ -202,12 +232,12 @@ viz_colors_nas_bylg <-
   viz_theme_base +
   theme(
     panel.background = element_rect(),
-    axis.text.x = element_text(angle = 45), 
+    axis.text.x = element_text(angle = 45, hjust = 1), 
     legend.position = "right"
   ) +
   viz_labs_base +
-  labs(title = paste0("Missing Colors", lab_base_suffix),
-       subtitle = "Count by League and Ordinality")
+  labs(title = lab_title_colors_nas_bylg,
+       subtitle = lab_subtitle_colors_nas_bylg)
 viz_colors_nas_bylg
 ```
 
@@ -225,7 +255,7 @@ colors_pct_nas <-
     by = "league"
   ) %>%
   mutate(n_pct = 100 * n / total)
-colors_pct_nas
+colors_pct_nas %>% create_kable()
 ```
 
 Both the visualization and the tabulation indicate that the MLB is missing
@@ -279,7 +309,7 @@ _(More) Technical Notes_
     a 0 to 255 scale--in order to make the final values more interpretable.
 
 
-```{r colors_rgb}
+```{r rgb_funcs}
 add_rgb_cols <- function(data) {
   data %>%
     pull(hex) %>%
@@ -316,14 +346,17 @@ rank_leagues_byrgb <- function(data = NULL) {
     arrange(mean)
   colors_rgb_bylg
 }
+```
 
+```{r colors_rgb_bylg}
 colors_tidy_nona <-
   colors_tidy %>%
   filter(!is.na(hex))
 
 colors_tidy_nona %>% 
   rank_leagues_byrgb() %>%
-  arrange(mean)
+  arrange(mean) %>% 
+  create_kable()
 ```
 
 This calculation proves what we might have guessed by inspection--the NHL actually has the darkest colors.
@@ -334,7 +367,8 @@ of the teams in the league.
 colors_tidy_nona %>% 
   filter(ord == "primary") %>% 
   rank_leagues_byrgb() %>% 
-  arrange(mean)
+  arrange(mean) %>% 
+  create_kable()
 ```
 
 On the other hand, the NBA and the two soccer leagues (the MLS and the EPL) stand
@@ -351,7 +385,8 @@ there is not much variation in this color.
 colors_tidy_nona %>% 
   filter(ord == "tertiary") %>% 
   rank_leagues_byrgb() %>%
-  arrange(sd)
+  arrange(sd) %>% 
+  create_kable()
 ```
 
 ### Common Colors
@@ -433,7 +468,9 @@ add_color_nm_col <- function(data, rename = TRUE) {
 colors_named <-
   colors_tidy_nona %>%
   add_color_nm_col()
+```
 
+```{r colors_named_show}
 colors_named %>%
   count(color_nm, sort = TRUE)
 colors_named %>%
@@ -441,13 +478,46 @@ colors_named %>%
   filter(ord %in% c("primary", "secondary")) %>% 
   group_by(ord) %>% 
   mutate(rank_byord = row_number(desc(n))) %>% 
-  do(head(., 5))
+  do(head(., 5)) %>% 
+  create_kable()
 ```
 
 Of course, a good visualization is always appreciated.
-Given the "set" nature of the data set, I think that
-the [{UpSetR} package](https://github.com/hms-dbmi/UpSetR) is very useful here--it 
-can be used to generate distinctive graphs for set-related data. [^fn_upsetr] 
+
+```{r colors_sets, include = FALSE}
+ords <- ord_nums %>% pull(ord)
+color_nm_na <- "none"
+colors_named_complete <-
+  colors_named %>% 
+  mutate(ord = factor(ord, levels = ords)) %>% 
+  select(-hex, -league) %>% 
+  tidyr::complete(name, ord, fill = list(color_nm = color_nm_na)) %>%
+  tidyr::spread(ord, color_nm)
+
+colors_named_ig <- 
+  colors_named_complete %>%
+  select(-name) %>% 
+  select(primary, secondary) %>% 
+  igraph::graph_from_data_frame()
+colors_named_ig
+igraph::V(colors_named_ig)$node_label <- names(igraph::V(colors_named_ig))
+igraph::V(colors_named_ig)$node_size <- igraph::degree(colors_named_ig)
+
+viz_colors_named <-
+  colors_named_ig %>%
+  ggraph::ggraph(layout = "linear", circular = TRUE) +
+  ggraph::geom_edge_arc() +
+  # ggraph::geom_edge_arc(edge_width = 0.125, aes(alpha = ..index..)) +
+  ggraph::geom_node_text(aes(label = node_label)) +
+  coord_fixed() +
+  # teplot::theme_te()
+  ggraph::theme_graph(base_family = "Arial")
+  viz_colors_named
+```
+
+Moreover, given the "set" nature of the data set, I think that
+the [{UpSetR} package](https://github.com/hms-dbmi/UpSetR) can be used to create
+an intersection-style graph. [^fn_upsetr] 
 
 Neglecting the color black, which is unsurprisingly the most common color,
 red has the highest count. (Consequently, it is deserving of use as the fill for the bars
@@ -464,15 +534,7 @@ After learning about the this package recently, I'm glad to finally have a use-c
 Unfortunately, it seems that customizing the colors
 for each set is not straightforward, so I do attempt it.
 
-```{r colors_sets, echo = FALSE}
-ords <- colors_tidy %>% pull_distinctly(ord)
-color_nm_na <- "none"
-colors_named_complete <-
-  colors_named %>% 
-  mutate(ord = factor(ord, levels = ords)) %>% 
-  select(-hex, -league) %>% 
-  tidyr::complete(name, ord, fill = list(color_nm = color_nm_na)) %>%
-  tidyr::spread(ord, color_nm)
+```{r colors_sets, include = FALSE}
 colors_named_tidy <-
   colors_named_complete %>%
   tidyr::gather(ord, color_nm, -name)
@@ -490,7 +552,9 @@ colors_sets <-
                    as.data.frame()) %>%
   `colnames<-`(colors_nms) %>% 
   mutate_all(as.integer)
-colors_sets %>% tibble::as_tibble()
+
+colors_sets %>% 
+  tibble::as_tibble()
 ```
 
 ```{r viz_colors_sets, echo = FALSE}
@@ -502,8 +566,8 @@ colors_nms_exclude <-
   c(color_nm_na)
 colors_nms_include <-
   setdiff(colors_nms, colors_nms_exclude)
-
 num_intersects <- 10
+
 viz_colors_sets <-
   UpSetR::upset(
     colors_sets %>% select(one_of(c(colors_nms_include))),
@@ -550,7 +614,7 @@ explore various values of k for a kmeans model.
 [kmeans vignette](https://cran.r-project.org/web/packages/broom/vignettes/kmeans.html)
 provides a really helpful example.)
 
-```{r colors_tidy_ord2, echo = FALSE}
+```{r colors_tidy_ord2, include = FALSE}
 colors_tidy_ord2 <-
   colors_tidy %>%
   filter(ord %in% c("primary", "secondary")) %>% 
@@ -559,7 +623,7 @@ colors_tidy_ord2 <-
   tidyr::gather(ord, hex, primary, secondary)
 ```
 
-```{r hue_functions, echo = FALSE}
+```{r hue_functions, include = FALSE}
 # Reference(s):
 # + https://stackoverflow.com/questions/28562288/how-to-use-the-hsl-hue-saturation-lightness-cylindric-color-model
 convert_rgb2hsl <- function(r, g, b) {
@@ -626,8 +690,7 @@ add_hue_col <- function(data, rename = TRUE) {
 
 ```
 
-
-```{r km_data, echo = FALSE}
+```{r km_data, include = FALSE}
 km_data <-
   colors_tidy_ord2 %>%
   add_hue_col() %>% 
@@ -654,8 +717,14 @@ kms_clusts <- kms %>% group_by(k) %>% do(broom::tidy(.$kclust[[1]]))
 kms_assigns <- kms %>% group_by(k) %>% do(broom::augment(.$kclust[[1]], km_data))
 kms_metrics <- kms %>% group_by(k) %>% do(broom::glance(.$kclust[[1]]))
 
+lab_title_kclusts <- "K-Means Clustering for k = 1 to k = 9"
 lab_subtitle_kclusts <- paste0("Primary and Secondary Colors", lab_base_suffix)
-
+lab_caption_kclusts <-
+  paste0("64-bit hex values are converted to decimal values",
+         " and are scaled to 0 to 1 range.\n",
+         "Closer to 1 ~ more white and/or strong blend
+                     of RGB colors; closer to 0 ~ more black and/or",
+         "strong shade of single one of RGB colors.")
 viz_kclusts <-
   kms_assigns %>% 
   ggplot(aes(x = primary, y = secondary, )) +
@@ -677,13 +746,10 @@ viz_kclusts <-
   ) +
   viz_labs_base +
   labs(
-    title = "K-Means Clustering for k = 1 to k = 9",
-    subtitle =  lab_subtitle_kclusts,
-    caption = paste0("64-bit hex values are converted to decimal values",
-                     " and are scaled to 0 to 1 range.\n",
-                     "Closer to 1 ~ more white and/or strong blend
-                     of RGB colors; closer to 0 ~ more black and/or",
-                     "strong shade of single one of RGB colors.")
+    title = lab_title_kclusts,
+    subtitle = lab_subtitle_kclusts,
+    caption = lab_caption_kclusts
+              
   )
 viz_kclusts
 ```
@@ -699,6 +765,13 @@ value of k--which is typically monotonically decreasing with increasing k--and
 pick the value of k that corresponds to the "bend" in the plot.
 
 ```{r viz_wss, echo = FALSE}
+lab_title_wss <- "Total Within-Cluster Sum of Squares Distance for K-Means Algorithm for k = 1 to k = 9"
+lab_subtitle_wss <- lab_subtitle_kclusts
+lab_caption_wss <-
+  paste0("The \"elbow\" in the curve indicates where the difference between",
+         "consecutive values of `tot.withinss` is minimized.\n",
+         " This is a generally considered a good choice for `k`",
+         "(This is known as the \"Elbow\" Method).")
 labs_x_wss <- seq(2, 8, by = 2)
 viz_wss <-
   kms_metrics %>%
@@ -710,12 +783,9 @@ viz_wss <-
   scale_x_continuous(breaks = labs_x_wss, labels = labs_x_wss) +
   teplot::theme_te() +
   labs(
-    title = "Total Within-Cluster Sum of Squares Distance for K-Means Algorithm for k = 1 to k = 9",
-    subtitle = lab_subtitle_kclusts,
-    caption = paste0("The \"elbow\" in the curve indicates where the difference between",
-                     "consecutive values of `tot.withinss` is minimized.\n",
-                     " This is a generally considered a good choice for `k`",
-                     "(This is known as the \"Elbow\" Method).")
+    title = lab_title_wss,
+    subtitle = lab_subtitle_wss,
+    caption = lab_caption_wss
   )
 viz_wss
 ```
@@ -724,7 +794,10 @@ For those who enjoy calculus, the k value for which the second derivative
 of the curve is minimized is the optimal value (by the Elbow method).
 
 ```{r kms_metrics}
-kms_metrics$tot.withinss[1:8] %>% diff(differences = 2) %>% which.min() + 2
+kms_metrics$tot.withinss[1:8] %>% 
+  diff(differences = 2) %>% 
+  which.min() + 
+  2
 ```
 
 To complement this conclusion, I can use
@@ -744,7 +817,7 @@ nb <-
 ```
 
 
-```{r nb_fviz, echo = FALSE}
+```{r nb_fviz, include = FALSE}
 nb_fviz <-
   factoextra::fviz_nbclust(nb, barfill = "grey50", barcolor = "grey50")
 nb_fviz
@@ -754,7 +827,7 @@ It's nice to see that this method comes to the same conclusion.
 
 
 ```{r save_session, include = FALSE, eval = FALSE}
-# session::save.session(file = file.path("data", "colors-eda-1.RData"))
+save.image(file = file.path("data", "colors-eda-1.RData"))
 ```
 
 I'll continue this analysis in a separate write-up. Unfortunately (or, perhaps, fortunately)
