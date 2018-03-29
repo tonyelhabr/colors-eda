@@ -13,9 +13,9 @@ knitr::opts_chunk$set(
   echo = TRUE,
   # echo = FALSE,
   # cache = TRUE,
-  results = "markdown",
+  # results = "markdown",
   # results = "hide",
-  # fig.align = "center",
+  fig.align = "center",
   fig.show = "asis",
   fig.width = 10,
   fig.height = 6,
@@ -139,7 +139,7 @@ significance can be extracted from this plot, but it's still nice to have as
 a mechanism for getting familiar with the data.
 
 
-```{r viz_colors_all, echo = FALSE}
+```{r viz_colors_all, echo = FALSE, fig.width = 8, fig.height = 8}
 pull_distinctly <- function(data, col) {
   col <- rlang::enquo(col)
   data %>%
@@ -216,7 +216,7 @@ viz_colors_all
 Note that there are quite a few teams without a full set of four colors
 (and some without a third or even second color).
 
-```{r viz_colors_nas_bylg, echo = FALSE}
+```{r viz_colors_nas_bylg, echo = FALSE, fig.width = 10, fig.height = 8}
 lab_title_colors_nas_bylg <- paste0("Missing Colors", lab_base_suffix)
 lab_subtitle_colors_nas_bylg <- "Count by League and Ordinality"
 viz_colors_nas_bylg <-
@@ -254,7 +254,8 @@ colors_pct_nas <-
       mutate(total = as.integer(4 * total)),
     by = "league"
   ) %>%
-  mutate(n_pct = 100 * n / total)
+  mutate(n_pct = 100 * n / total) %>% 
+  mutate_if(is.numeric, funs(round(., 2)))
 colors_pct_nas %>% create_kable()
 ```
 
@@ -346,6 +347,10 @@ rank_leagues_byrgb <- function(data = NULL) {
     arrange(mean)
   colors_rgb_bylg
 }
+
+convert_dec2pct <- function(x) {
+  100 * round(x, 4)
+}
 ```
 
 ```{r colors_rgb_bylg}
@@ -353,9 +358,11 @@ colors_tidy_nona <-
   colors_tidy %>%
   filter(!is.na(hex))
 
+
 colors_tidy_nona %>% 
   rank_leagues_byrgb() %>%
   arrange(mean) %>% 
+  mutate_if(is.numeric, funs(convert_dec2pct)) %>% 
   create_kable()
 ```
 
@@ -368,6 +375,7 @@ colors_tidy_nona %>%
   filter(ord == "primary") %>% 
   rank_leagues_byrgb() %>% 
   arrange(mean) %>% 
+  mutate_if(is.numeric, funs(convert_dec2pct)) %>% 
   create_kable()
 ```
 
@@ -386,6 +394,7 @@ colors_tidy_nona %>%
   filter(ord == "tertiary") %>% 
   rank_leagues_byrgb() %>%
   arrange(sd) %>% 
+  mutate_if(is.numeric, funs(convert_dec2pct)) %>% 
   create_kable()
 ```
 
@@ -432,10 +441,9 @@ colors_rnbw_hex <-
     "#000000"
   )
 colors_rnbw <- identify_color_name(colors_rnbw_hex)
-colors_rnbw
 ```
 
-```{r viz_colors_rnbw, echo = FALSE}
+```{r viz_colors_rnbw, echo = FALSE, fig.width = 10, fig.height = 6}
 # par(mfrow = c(1, 1))
 # plot.new()
 # scales::show_col(colors_rnbw_hex)
@@ -472,7 +480,8 @@ colors_named <-
 
 ```{r colors_named_show}
 colors_named %>%
-  count(color_nm, sort = TRUE)
+  count(color_nm, sort = TRUE) %>% 
+  create_kable()
 colors_named %>%
   count(ord, color_nm, sort = TRUE) %>% 
   filter(ord %in% c("primary", "secondary")) %>% 
@@ -482,9 +491,9 @@ colors_named %>%
   create_kable()
 ```
 
-Of course, a good visualization is always appreciated.
+Of course, a visualization is always appreciated.
 
-```{r colors_sets, include = FALSE}
+```{r viz_colors_named, echo = FALSE, fig.width = 8, fig.height = 8}
 ords <- ord_nums %>% pull(ord)
 color_nm_na <- "none"
 colors_named_complete <-
@@ -496,26 +505,43 @@ colors_named_complete <-
 
 colors_named_ig <- 
   colors_named_complete %>%
-  select(-name) %>% 
-  select(primary, secondary) %>% 
+  filter(primary != secondary) %>% 
+  count(primary, secondary, sort = TRUE) %>%
+  filter(primary != "none") %>% 
+  filter(secondary != "none") %>% 
   igraph::graph_from_data_frame()
-colors_named_ig
+
 igraph::V(colors_named_ig)$node_label <- names(igraph::V(colors_named_ig))
 igraph::V(colors_named_ig)$node_size <- igraph::degree(colors_named_ig)
+
+lab_title_colors_named <- paste0("Colors", lab_base_suffix)
+lab_subtitle_colors_named <- paste0("Relationships Among Primary and Secondary Colors")
 
 viz_colors_named <-
   colors_named_ig %>%
   ggraph::ggraph(layout = "linear", circular = TRUE) +
-  ggraph::geom_edge_arc() +
-  # ggraph::geom_edge_arc(edge_width = 0.125, aes(alpha = ..index..)) +
+  # ggraph::ggraph(layout = "kk") +
+  # ggraph::ggraph() +
+  # ggraph::geom_edge_arc() +
+  ggraph::geom_edge_arc(
+    aes(
+      edge_width = n / 3,
+      # edge_alpha = n
+      start_cap = ggraph::label_rect(node1.name, padding = margin(5, 5, 5, 5)),
+      end_cap = ggraph::label_rect(node2.name, padding = margin(5, 5, 5, 5))
+      )
+    ) +
   ggraph::geom_node_text(aes(label = node_label)) +
   coord_fixed() +
   # teplot::theme_te()
-  ggraph::theme_graph(base_family = "Arial")
-  viz_colors_named
+  # ggraph::theme_graph(base_family = "Arial") +
+  theme_void() +
+  theme(plot.title = element_text(face = "bold", size = 16), plot.subtitle = element_text(size = 12)) +
+  labs(title = lab_title_colors_named, subtitle = lab_subtitle_colors_named)
+viz_colors_named
 ```
 
-Moreover, given the "set" nature of the data set, I think that
+Additionally, given the "set" nature of the data set, I think that
 the [{UpSetR} package](https://github.com/hms-dbmi/UpSetR) can be used to create
 an intersection-style graph. [^fn_upsetr] 
 
@@ -557,7 +583,7 @@ colors_sets %>%
   tibble::as_tibble()
 ```
 
-```{r viz_colors_sets, echo = FALSE}
+```{r viz_colors_sets, echo = FALSE, fig.width = 8, fig.height = 8}
 colors_nms_exclude <-
   colors_named %>% 
   count(color_nm, sort = TRUE) %>% 
@@ -699,7 +725,7 @@ km_data <-
 km_data
 ```
 
-```{r viz_kclusts, echo = FALSE}
+```{r viz_kclusts, echo = FALSE, fig.width = 8, fig.height = 8}
 seed <- 42
 set.seed(seed)
 
@@ -727,13 +753,16 @@ lab_caption_kclusts <-
          "strong shade of single one of RGB colors.")
 viz_kclusts <-
   kms_assigns %>% 
-  ggplot(aes(x = primary, y = secondary, )) +
-  geom_point(aes(color = .cluster), size = 2) +
+  ungroup() %>% 
+  rename(cluster = .cluster) %>% 
+  ggplot(aes(x = primary, y = secondary)) +
+  geom_point(aes(color = cluster), size = 2) +
   geom_point(
-    data = kms_clusts %>% 
-      rename(primary = x1, secondary = x2), 
-    aes(color = cluster), 
-    size = 10, 
+    data = kms_clusts %>%
+      ungroup() %>% 
+      rename(primary = x1, secondary = x2),
+    aes(color = cluster),
+    size = 10,
     shape = 1,
     stroke = 2
   ) +
@@ -764,7 +793,7 @@ Basically, the point is to plot the within-cluster sum of squares (WSS) (i.e. va
 value of k--which is typically monotonically decreasing with increasing k--and
 pick the value of k that corresponds to the "bend" in the plot.
 
-```{r viz_wss, echo = FALSE}
+```{r viz_wss, echo = FALSE, fig.width = 10, fig.height = 6}
 lab_title_wss <- "Total Within-Cluster Sum of Squares Distance for K-Means Algorithm for k = 1 to k = 9"
 lab_subtitle_wss <- lab_subtitle_kclusts
 lab_caption_wss <-
@@ -817,7 +846,7 @@ nb <-
 ```
 
 
-```{r nb_fviz, include = FALSE}
+```{r nb_fviz, include = FALSE, fig.width = 10, fig.height = 6}
 nb_fviz <-
   factoextra::fviz_nbclust(nb, barfill = "grey50", barcolor = "grey50")
 nb_fviz
