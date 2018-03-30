@@ -133,7 +133,7 @@ library(&quot;ggplot2&quot;)</code></pre>
 <div id="color-similarity" class="section level2">
 <h2>Color Similarity</h2>
 <p>Now, I’d like to evaluate color similarity more closely. To help verify any quantitative deductions with some intuition, I’ll consider only a single league for this–the NBA, the league that I know the best.</p>
-<p>Because I’ll end up plotting team names at some point (probably with a heat map), I want to get the official abbreviations for each team (because the full names are relatively lengthy). Unfortunately, these don’t come with the <a href="https://github.com/beanumber/teamcolors"><code>teamcolor</code> package</a>. Nevertheles, I can use <a href="http://asbcllc.com/">Alex Bresler</a>’s <a href="https://github.com/abresler/nbastatR"><code>nbastatR</code> package</a> to do so.</p>
+<p>Because I’ll end up plotting team names at some point (probably with a heat map), I want to get the official abbreviations for each team (because the full names are relatively lengthy). Unfortunately, these don’t come with the <a href="https://github.com/beanumber/teamcolors"><code>teamcolor</code> package</a>. Nevertheless, I can use <a href="http://asbcllc.com/">Alex Bresler</a>’s <a href="https://github.com/abresler/nbastatR"><code>nbastatR</code> package</a> to do so.</p>
 <pre class="r"><code># Assign `df_dict_nba_teams` to Global environment.
 nbastatR::assign_nba_teams()
 nms_nba &lt;-

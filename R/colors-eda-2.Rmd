@@ -52,7 +52,7 @@ Because I'll end up plotting team names at some point (probably with a heat map)
 to get the official abbreviations for each team (because the full names are relatively lengthy).
 Unfortunately, these
 don't come with the [`teamcolor` package](https://github.com/beanumber/teamcolors). 
-Nevertheles, I can use [Alex Bresler](http://asbcllc.com/)'s 
+Nevertheless, I can use [Alex Bresler](http://asbcllc.com/)'s 
 [`nbastatR` package](https://github.com/abresler/nbastatR) to do so. 
 
 ```{r nms_nba}
