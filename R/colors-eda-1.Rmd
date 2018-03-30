@@ -16,7 +16,7 @@ knitr::opts_chunk$set(
   # results = "markdown",
   # results = "hide",
   fig.align = "center",
-  fig.show = "asis",
+  # fig.show = "asis",
   fig.width = 10,
   fig.height = 6,
   # out.width = 6,
@@ -58,6 +58,7 @@ library("dplyr")
 # library("teamcolors")
 library("ggplot2")
 # library("tidyr")
+# library("tibble")
 # library("purrr")
 # library("stringr")
 # library("stringi")
@@ -70,6 +71,9 @@ library("ggplot2")
 # library("GGally")
 # library("viridis)
 # library("corrr")
+# library("igraph")
+# library("ggraph")
+# library("circlize")
 ```
 
 The data that I'll use comes from the 
@@ -493,32 +497,37 @@ colors_named %>%
 
 Of course, a visualization is always appreciated.
 
-```{r viz_colors_named, echo = FALSE, fig.width = 8, fig.height = 8}
+```{r viz_colors_named, incude = FALSE, fig.width = 8, fig.height = 8}
 ords <- ord_nums %>% pull(ord)
 color_nm_na <- "none"
-colors_named_complete <-
+colors_named_compl <-
   colors_named %>% 
   mutate(ord = factor(ord, levels = ords)) %>% 
   select(-hex, -league) %>% 
   tidyr::complete(name, ord, fill = list(color_nm = color_nm_na)) %>%
   tidyr::spread(ord, color_nm)
 
-colors_named_ig <- 
-  colors_named_complete %>%
+colors_named_compl_ord2 <- 
+  colors_named_compl %>%
   filter(primary != secondary) %>% 
   count(primary, secondary, sort = TRUE) %>%
   filter(primary != "none") %>% 
-  filter(secondary != "none") %>% 
+  filter(secondary != "none")
+
+colors_named_compl_ord2_ig <- 
+  colors_named_compl_ord2 %>% 
   igraph::graph_from_data_frame()
 
-igraph::V(colors_named_ig)$node_label <- names(igraph::V(colors_named_ig))
-igraph::V(colors_named_ig)$node_size <- igraph::degree(colors_named_ig)
+igraph::V(colors_named_compl_ord2_ig)$node_label <- names(igraph::V(colors_named_compl_ord2_ig))
+igraph::V(colors_named_compl_ord2_ig)$node_size <- igraph::degree(colors_named_compl_ord2_ig)
 
 lab_title_colors_named <- paste0("Colors", lab_base_suffix)
 lab_subtitle_colors_named <- paste0("Relationships Among Primary and Secondary Colors")
 
+# Reference:
+# + https://rud.is/books/21-recipes/visualizing-a-graph-of-retweet-relationships.html.
 viz_colors_named <-
-  colors_named_ig %>%
+  colors_named_compl_ord2_ig %>%
   ggraph::ggraph(layout = "linear", circular = TRUE) +
   # ggraph::ggraph(layout = "kk") +
   # ggraph::ggraph() +
@@ -538,7 +547,33 @@ viz_colors_named <-
   theme_void() +
   theme(plot.title = element_text(face = "bold", size = 16), plot.subtitle = element_text(size = 12)) +
   labs(title = lab_title_colors_named, subtitle = lab_subtitle_colors_named)
-viz_colors_named
+# viz_colors_named
+```
+
+```{r viz_colors_named_2, echo = FALSE, fig.width = 10, fig.height = 10}
+# Reference:
+# + http://zuguang.de/circlize_book/book/the-chorddiagram-function.html.
+# colors_named_compl_ord2 %>% distinct(primary) %>% pull(primary)
+colors_pri <-
+  colors_named_compl_ord2 %>% pull_distinctly(primary)
+grid.col <-
+  setNames(colors_pri, colors_pri)
+colors_named_compl_ord2_mat <-
+  colors_named_compl_ord2 %>%
+  tidyr::spread(secondary, n, fill = 0) %>%
+  tibble::column_to_rownames("primary") %>%
+  as.matrix()
+lab_title_colors_named_2 <-
+  paste0("Primary and Secondary Colors", lab_base_suffix)
+viz_colors_named_2 <-
+  circlize::chordDiagram(
+    colors_named_compl_ord2_mat,
+    grid.col = grid.col,
+    directional = -1,
+    diffHeight = circlize::uh(5, "mm")
+  )
+title(main = lab_title_colors_named_2, font.main = 2)
+
 ```
 
 Additionally, given the "set" nature of the data set, I think that
@@ -562,7 +597,7 @@ for each set is not straightforward, so I do attempt it.
 
 ```{r colors_sets, include = FALSE}
 colors_named_tidy <-
-  colors_named_complete %>%
+  colors_named_compl %>%
   tidyr::gather(ord, color_nm, -name)
 
 # + Reference:
