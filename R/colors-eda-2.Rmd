@@ -48,12 +48,13 @@ Now, I'd like to evaluate color similarity more closely. To help verify
 any quantitative deductions with some intuition,
 I'll consider only a single league for this--the NBA, the league that I know the best. 
 
-Because I'll end up plotting team names at some point (probably with a heat map), I want
-to get the official abbreviations for each team (because the full names are relatively lengthy).
+Because I'll end up plotting team names at some point and
+some of the full names are relatively lengthy, I want
+to get the official abbreviations for each team.
 Unfortunately, these
-don't come with the [`teamcolor` package](https://github.com/beanumber/teamcolors). 
-Nevertheless, I can use [Alex Bresler](http://asbcllc.com/)'s 
-[`nbastatR` package](https://github.com/abresler/nbastatR) to do so. 
+don't come with the [`teamcolor` package](https://github.com/beanumber/teamcolors),
+but I can use [Alex Bresler](http://asbcllc.com/)'s 
+[`nbastatR` package](https://github.com/abresler/nbastatR) to get them.
 
 ```{r nms_nba}
 # Assign `df_dict_nba_teams` to Global environment.
@@ -109,8 +110,11 @@ viz_colors_ord2_nba
 
 
 After grabbing the abbreviations (or `slug`s), I can move on to breaking up
-the hex values into their RGB components. (I use the same method as the one used before.)
+the hex values into their RGB components. [^fn_rgb]
 I'll be looking at only the primary and secondary colors again.
+
+[^fn_rgb]:
+I use the same method as the one I used before.
 
 ```{r colors_ord2_nba_rgb_tidy}
 colors_ord2_nba_rgb_tidy <-
@@ -147,10 +151,8 @@ d %>%
 
 With the RGB values extracted, I can use the `widyr::pairwise_dist()` function
 to compute the relative distance among teams in terms of RGB values for each color 
-ordinality. [^fn_pairwise_dist] [^fn_pairwise_similarity]
-I think the default method--["Euclidean" distance](https://en.wikipedia.org/wiki/Euclidean_distance)--is reasonable.
-But, because I'm curious, I'll look at how different the results would be if the
-["Manhattan" distance](https://en.wiktionary.org/wiki/Manhattan_distance) is used instead.
+ordinality.I think the default 
+method--["Euclidean" distance](https://en.wikipedia.org/wiki/Euclidean_distance)--is reasonable.
 
 ```{r do_pairwise_dist}
 do_pairwise_dist <- function(data, method) {
@@ -163,29 +165,10 @@ do_pairwise_dist <- function(data, method) {
     ungroup()
 }
 
-correlate_pairwise_out2 <- function(data1, data2) {
-  corrr::correlate(
-    data1 %>% 
-      rename(value1 = value) %>% 
-      left_join(data2 %>% rename(value2 = value)) %>%
-      select_if(is.numeric)
-  )
-}
-
-correlate_pairwise_out2(
-  colors_ord2_nba_rgb_tidy %>%
-    do_pairwise_dist("euclidean"),
-  colors_ord2_nba_rgb_tidy %>%
-    do_pairwise_dist("manhattan") 
-) %>% 
-  mutate_if(is.numeric, funs(convert_dec2pct)) %>% 
-  create_kable()
 ```
 
 As one might expect, there's not much difference between these 
-two distance methods (if correlation is deemed a valid metric for similarity).
-Some other distance methods would probably result in a more dissimilar result set,
-but these two methods seem most appropriate.
+two distance methods (if correlation is deemed a valid metric for quantifying similarity).
 
 How exactly do all of the individual distances compare?
 
@@ -279,21 +262,14 @@ viz_colors_ord2_nba_rgb_dist
 ```
 
 
-I think that this circular diagram does a good job of
+I think that the above plot does a good job of
 highlighting the average distance values (in terms of RGB)
 of each team. Additionally, by sorting the teams by value, it illustrates
 exactly which teams are the most "generic" (i.e. most similar to all other teams)
 and the most "unique" (i.e. least similar to all other teams.)
 
-I can also use a heat map to visualize the distance values.
+I can also use a heat map to visualize the same data
 (Who doesn't like a good heat map?)
-Like with the previous plot, I order the teams on each axis
-by total distance from all other teams--teams with the highest cumulative similarity to all
-other teams appear towards the bottom and left, while teams that
-contrast most with all others appear towards the top and right. And,
-to add some nuance, I emphasize the individual team-pairs that have the highest
-and lowest similarity with different colors.
-
 
 ```{r colors_ord2_nba_rgb_dist_byord_viz, echo = FALSE}
 create_colors_ord2_nba_rgb_dist_viz <- function(data, ranks) {
@@ -405,29 +381,43 @@ viz_colors_ord2_nba_rgb_dist_2 <-
 viz_colors_ord2_nba_rgb_dist_2
 ```
 
+Like with the previous plot, I order the teams on each axis
+by total distance from all other teams--teams with the highest cumulative similarity to all
+other teams appear towards the bottom and left, while teams that
+contrast most with all others appear towards the top and right. And,
+to add some nuance, I emphasize the individual pairs that have the highest
+and lowest similarity with different colors.
 
-Exactly which teams make up the top and bottom percent (in terms of color similarity)?
-Here's a list of the top and bottom 10. [^fn_topbot_ties]
+Exactly which teams match most and least closely with one another (in terms of color similarity)?
+Here's a list of the top and bottom matches for each team.
 
-[^fn_topbot_ties]:
-There are some ties--these are broken by cumulative similarity rank (i.e. the metric shown in the previous plot),
-which is not shown in the data printout.
+```{r colors_ord2_nba_rgb_dist_viz_prank, echo = FALSE, eval = FALSE}
+# colors_ord2_nba_rgb_dist_viz_prank <-
+#   colors_ord2_nba_rgb_dist_viz %>% 
+#   mutate(prank = percent_rank(value)) %>% 
+#   arrange(prank)
+# 
+# slice_topbot <- function(data, num) {
+#   data %>%
+#     slice(c(1:num, c(n() - (num - 1)):n()))
+# }
+# 
+# colors_ord2_nba_rgb_dist_viz_prank %>% 
+#   select(-rank1, -rank2, -prank) %>% 
+#   slice_topbot(10) %>% 
+#   create_kable(num_show = 20)
+```
 
-```{r colors_ord2_nba_rgb_dist_viz_prank, echo = FALSE}
-colors_ord2_nba_rgb_dist_viz_prank <-
-  colors_ord2_nba_rgb_dist_viz %>% 
-  mutate(prank = percent_rank(value)) %>% 
-  arrange(prank)
-
-slice_topbot <- function(data, num) {
-  data %>%
-    slice(c(1:num, c(n() - (num - 1)):n()))
-}
-
-colors_ord2_nba_rgb_dist_viz_prank %>% 
-  select(-rank1, -rank2, -prank) %>% 
-  slice_topbot(10) %>% 
-  create_kable(num_show = 20)
+```{r colors_ord2_nba_rgb_dist_viz_topbot, echo = FALSE}
+colors_ord2_nba_rgb_dist_viz %>% 
+  group_by(name1) %>% 
+  arrange(value, .by_group = TRUE) %>% 
+  do(slice(., c(1, n()))) %>% 
+  ungroup() %>%
+  select(rank_overall = rank1, everything(), -rank2) %>% 
+  rename(dist = value) %>%
+  mutate_at(vars(dist), funs(round(., 0))) %>% 
+  create_kable(num_show = 60)
 ```
 
 These results don't really agree with what I--and maybe other NBA fans--would have guessed.
@@ -435,19 +425,39 @@ The Sacramento Kings (`SAC`)
 have purple as their primary color, which is relatively unusual. I would think that they
 would be in the lower half of these rankings. Whats going on? ...
 
-### Color Theory
+## Color Theory
 
-Is the [RGB model](https://en.wikipedia.org/wiki/RGB_color_model) 
+When doing this color-based analysis, several questions came to mind:
+
+1. Is the [RGB model](https://en.wikipedia.org/wiki/RGB_color_model) 
 really the best framework to use for comparing colors? What about the 
-[HSL color schema](https://en.wikipedia.org/wiki/HSL_and_HSV) (Hue, Saturation, Lightness), 
-which incorporates hue and lightness (two concepts that I've looked at already)?
-While the HSL model is worth evaluating, my research on this topic--which
-mostly consisted of a quick Google search for
-["What is the best method for identifying similarity between colors?"](https://stackoverflow.com/questions/5392061/algorithm-to-check-similarity-of-colors)--indicates
-that another encoding might be best--the [YUV representation](https://en.wikipedia.org/wiki/YUV).
+[HSL](https://en.wikipedia.org/wiki/HSL_and_HSV) (Hue, Saturation, Lightness) model?
+Additionally, a quick Google search for
+["What is the best method for identifying similarity between colors?"](https://stackoverflow.com/questions/5392061/algorithm-to-check-similarity-of-colors)
+indicates the [YUV representation](https://en.wikipedia.org/wiki/YUV)--a model
+I hadn't heard of before--is best,
+(if human perception is the main concern).
 
-Since' I'm not expert in color models, I think its a good idea to perform distance
-calculations using each schema and see how well they agree with one another.
+2. Is Euclidean distance the best "distance" method to use?
+But, because I'm curious, I'll look at how different the results would be if the
+["Manhattan" distance](https://en.wiktionary.org/wiki/Manhattan_distance) is used instead.
+
+3. Is "distance" even the best method for determining color similarity.
+Why not a "similarity" metric (such as [cosine similarity](https://en.wikipedia.org/wiki/Cosine_similarity))?
+
+Since I'm not expert in color models, and because I there is no definitive/conclusive
+research with which I can cross-check my findings for color similarity among NBA teams,
+I think its worthwhile to explore these questions in more detail.
+First, I'll need to create HSL and YUV variations of the color data that I can
+compare to the RGB version that I've used up to this point. (This
+will help me answer the first question.) [^fn_hsl_yuv_code]
+Then, with each of these data sets in hand, I'll tackle the latter two questions directly.
+In the end, by comparing the different models with different methods,
+I hope to come to some stronger conclusions and/or justifications of my findings
+about NBA team colors.
+
+[^fn_hsl_yuv_code]:
+I don't show the code for this, so check out the .Rmd document for detail.
 
 ```{r yuv_funcs, echo = FALSE}
 convert_rgb2yuv <- function(r, g, b) {
@@ -474,14 +484,7 @@ add_yuv_cols <- function(data) {
 }
 ```
 
-To begin, I'll create "tidy" HSL and YUV data sets 
-(using some custom functions that I do not show).
-Then, as a sort-of "sanity check", I'll verify that the similarity determined by
-two distance methods--Euclidean and Manhattan--is nearly identical for each data set
-(corresponding to a singular color model).
-
-
-```{r colors_ord2_nba_hsl_yuv_dist}
+```{r colors_ord2_nba_hsl_yuv_tidy, echo = FALSE}
 colors_ord2_nba_hsl_tidy <-
   colors_tidy_ord2_nba %>%
   add_hsl_cols() %>% 
@@ -493,6 +496,45 @@ colors_ord2_nba_yuv_tidy <-
   add_yuv_cols() %>% 
   select(-hex) %>%
   tidyr::gather(rgb, value, y, u, v)
+```
+
+### Euclidean Distance vs. Manhattan Distance
+
+I'll look at two distance methods--Euclidean and Manhattan--to justify
+my choice of Euclidean distance before.
+To do this, I want to verify that the similarity determined by the
+two methods is nearly identical.
+(I would be surprised if they aren't.)
+
+```{r colors_ord2_nba_dist, echo = FALSE}
+correlate_pairwise_out2 <- function(data1, data2) {
+  corrr::correlate(
+    data1 %>%
+      rename(value1 = value) %>%
+      left_join(data2 %>% rename(value2 = value)) %>%
+      select_if(is.numeric)
+  )
+}
+
+rename_pairwise_dist_out <- function(data, model = c("rgb", "hsl", "yuv")) {
+  nm1 <- rlang::sym(paste0(model, "_", "euclidean"))
+  nm2 <- rlang::sym(paste0(model, "_", "manhattan"))
+  data %>%
+    rename(!!nm1 := value1, !!nm2 := value2) %>% 
+    # mutate(rowname = ifelse(rowname == "value1", !!nm1, !!nm2))
+    select(-rowname)
+}
+
+correlate_pairwise_out2(
+  colors_ord2_nba_rgb_tidy %>%
+    do_pairwise_dist("euclidean"),
+  colors_ord2_nba_rgb_tidy %>%
+    do_pairwise_dist("manhattan") 
+) %>% 
+  rename_pairwise_dist_out("rgb") %>% 
+  mutate_if(is.numeric, funs(convert_dec2pct)) %>% 
+  create_kable()
+
 
 correlate_pairwise_out2(
   colors_ord2_nba_hsl_tidy %>%
@@ -500,6 +542,7 @@ correlate_pairwise_out2(
   colors_ord2_nba_hsl_tidy %>%
     do_pairwise_dist("manhattan")
 ) %>% 
+  rename_pairwise_dist_out("hsl") %>% 
   mutate_if(is.numeric, funs(convert_dec2pct)) %>% 
   create_kable()
 
@@ -509,15 +552,19 @@ correlate_pairwise_out2(
   colors_ord2_nba_yuv_tidy %>%
     do_pairwise_dist("manhattan")
 ) %>% 
+  rename_pairwise_dist_out("yuv") %>% 
   mutate_if(is.numeric, funs(convert_dec2pct)) %>% 
   create_kable()
 ```
 
-Now, when keeping the distance method constant,
-what if I compare the calculated values across the each underlying
-data set (corresponding to the different color models)?
+Indeed, it looks like there is high correlation found between the Euclidean and Manhattan
+distances calculated when the hex color values are broken down into color components,
+regardless of whether the RGB, HSL, or YUV representation is used.
 
-```{r colors_ord2_nba_rgb_hsl_yuv_dist, echo = FALSE, fig.height = 10, fig.width = 6}
+Now, when keeping the distance method constant (Euclidean),
+how do the color models compare?
+
+```{r colors_ord2_nba_rgb_hsl_yuv_dist, echo = FALSE}
 cor_dist_data <-
   colors_ord2_nba_rgb_tidy %>% 
   do_pairwise_dist("euclidean") %>% 
@@ -532,38 +579,47 @@ cor_dist_data <-
       do_pairwise_dist("euclidean") %>% 
       rename(yuv_dist = value)
   )
-
-# # A "tidy" method (i.e. not using `stats::cor()` that doesn't produce a plot.
-# cor_dist_data %>% 
-#   select_if(is.numeric) %>% 
-#   corrr::correlate()
-lab_title_cor_dist <- "Correlation Matrix for RGB, HSL, and YUV Euclidean Distance Calculations"
-lab_subtitle_ord2_nba <-
-  stringr::str_replace_all(lab_subtitle_kclusts, lab_lgs, "NBA")
-viz_cor_dist <-
-  cor_dist_data %>% 
-  select_if(is.numeric) %>% 
-  GGally::ggcorr(label = TRUE, label_round = 2) +
-  viz_theme_base +
-  theme(legend.position = "right") +
-  viz_labs_base +
-  labs(title = lab_title_cor_dist, subtitle = lab_subtitle_ord2_nba)
-viz_cor_dist
+# A "tidy" method (i.e. not using `stats::cor()` that doesn't produce a plot.
+cor_dist_data %>%
+  select_if(is.numeric) %>%
+  corrr::correlate() %>%
+  mutate_if(is.numeric, funs(convert_dec2pct)) %>% 
+  create_kable()
 ```
 
+```{r viz_cor_dist, echo = FALSE, eval = FALSE, fig.height = 10, fig.width = 6}
+# lab_title_cor_dist <- paste0("Correlation Matrix for RGB, HSL, and YUV\nEuclidean Distance Calculations")
+# lab_subtitle_ord2_nba <-
+#   stringr::str_replace_all(lab_subtitle_kclusts, lab_lgs, "NBA")
+# viz_cor_dist <-
+#   cor_dist_data %>% 
+#   select_if(is.numeric) %>% 
+#   GGally::ggcorr(label = TRUE, label_round = 2) +
+#   viz_theme_base +
+#   theme(legend.position = "right") +
+#   viz_labs_base +
+#   labs(title = lab_title_cor_dist, subtitle = lab_subtitle_ord2_nba)
+# viz_cor_dist
+```
 
-Even if one can decide upon a "best" color scheme to use for comparing colors,
-there is the question of whether "distance" is the best method for doing so.
-Why not a "similarity" metric (such as cosine similarity)?
+The numbers indicate that there is some strong positive correlation, especially
+between the RGB and YUV color schemas. This indicates that the conclusions
+that I came to regarding most similar and dissimilar NBA team colors would not be
+much different if using the HSL or YUV models instead of the RGB model.
 
-Again, since I don't really have a strong opinion on which metric is appropriate,
-I think it's worthwhile to look at both. I'll save the reader from the details--it's
-not too dissimilar (pun intended) from the methods shown before--
-and skip right to a visualization showing the correlations among the distance metric (Euclidean method)
-and similarity metric for each color model--RGB, HSL, and YUV. (This presents
-a good opportunity to use [Dr. Simon](https://drsimonj.svbtle.com/)'s 
-[`{corrr} package`](https://github.com/drsimonj/corrr), including its handy `network_plot()` function.
-(`GGally::ggcorr()` was used for the previous correlation plot).
+### Distance vs. Similarity
+
+To compare distance (Euclidean) with cosine similarity, I can create and use
+a similar set of functions to those used for comparing distance methods.
+To visualize the results in an interpretable manner,
+I can use the `network_plot()` function from [Dr. Simon](https://drsimonj.svbtle.com/)'s 
+[`corrr` package`](https://github.com/drsimonj/corrr).
+This function is cool for visualizing correlation data in a way other than with a
+traditional correlation matrix. [^fn_network_plot]
+
+[^fn_network_plot]:
+I could have actually used this same function to visualize the various distance methods
+all in one plot.
 
 ```{r colors_ord2_nba_rgb_sim, include = FALSE}
 do_pairwise_sim_byord <- function(data, ord) {
@@ -616,6 +672,8 @@ cor_rgbhslyuv_distsim <-
 lab_title_cor_rgbhslyuv_distsim <-
   paste0("Correlation Network for RGB, HSL, and YUV Euclidean Distance",
          "\nand Cosine Similarity Calculations")
+lab_subtitle_ord2_nba <-
+  stringr::str_replace_all(lab_subtitle_kclusts, lab_lgs, "NBA")
 viz_cor_rgbhslyuv_distsim <-
   cor_rgbhslyuv_distsim %>% 
   corrr::network_plot(
@@ -629,16 +687,18 @@ viz_cor_rgbhslyuv_distsim <-
 viz_cor_rgbhslyuv_distsim
 ```
 
-It's clear that the RGB and YUV are fairly similar according to both metrics--Euclidean distance
+It's clear that the RGB and YUV schemas are fairly similar "within" both metrics--Euclidean distance
 and cosine similarity--and both are relatively dissimilar to HSL. However, all three color models
-show negative correlations with themselves when comparing the two metrics.
+show negative correlations "within" themselves when comparing the two metrics against one another.
+(i.e. The RGB schema has a negative correlation when comparing its distance values
+to its similarity values, and likewise for the HSL and YUV models.)
 
 ___So, which color model and which metric should be used?___
-In my (uninformed) opinion, the RGB model seems like a good choice, both because it is
+In my opinion, the RGB model seems like a good choice, both because it is
 relatively similar to at least one other method (YUV) and because it is (probably) the most
 relatable scheme to people who don't know much about color theory. For metric, I think that
-the choice of Euclidean distance is very defensible. My Google search (which makes the case for YUV) makes the assumption
-that Euclidean distance is being used. Additionally, a second Google search
+the choice of Euclidean distance is valid. My Google search (which makes the case for YUV) makes the assumption
+that Euclidean distance is being used. Additionally, a separate Google search
 for "euclidean distance vs. cosine similarity" turns up 
 [an easy-to-follow technical write-up](https://cmry.github.io/notes/euclidean-v-cosine)
 that implies
